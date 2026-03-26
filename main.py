@@ -23,12 +23,24 @@ async def lifespan(app: FastAPI):
     application.add_handler(CallbackQueryHandler(inline_button))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bid))
     await application.initialize()
-    await application.bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"✅ Webhook set: {WEBHOOK_URL}")
+    await application.start()
+    if WEBHOOK_URL:
+        await application.bot.set_webhook(WEBHOOK_URL)
+        logger.info(f"✅ Webhook set: {WEBHOOK_URL}")
+    else:
+        logger.warning("⚠️ WEBHOOK_URL not set. Skipping webhook setup. Please set the environment variable after deployment and restart the container.")
+    
     yield
-    await application.bot.delete_webhook()
+    
+    if WEBHOOK_URL:
+        # Avoid exception if webhook wasn't set or is invalid
+        try:
+            await application.bot.delete_webhook()
+        except Exception as e:
+            logger.warning(f"Error deleting webhook: {e}")
     try:
         await application.stop()
+        await application.shutdown() 
     except RuntimeError:
         pass
 
@@ -45,22 +57,3 @@ async def webhook(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("stop", stop))
-    application.add_handler(CallbackQueryHandler(inline_button))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bid))
-    await application.initialize()
-    await application.start()  # ← add this too
-    await application.bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"✅ Webhook set: {WEBHOOK_URL}")
-    yield
-    await application.bot.delete_webhook()
-    try:
-        await application.stop()
-        await application.shutdown() 
-    except RuntimeError:
-        pass
-
