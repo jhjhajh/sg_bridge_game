@@ -199,9 +199,33 @@ function handleMessage(msg) {
       lastGameOver = msg;
       break;
     case 'playerDisconnected':
+      showConnectionToast(`${msg.name} disconnected`);
+      if (gameState) {
+        const p = gameState.players.find(p => p.seat === msg.seat);
+        if (p) p.connected = false;
+        renderState();
+      }
+      break;
     case 'playerReconnected':
+      showConnectionToast(`${msg.name} reconnected`);
+      if (gameState) {
+        const p = gameState.players.find(p => p.seat === msg.seat);
+        if (p) p.connected = true;
+        renderState();
+      }
       break;
   }
+}
+
+function showConnectionToast(text) {
+  const div = document.createElement('div');
+  div.className = 'connection-toast';
+  div.textContent = text;
+  document.body.appendChild(div);
+  setTimeout(() => {
+    div.classList.add('fade-out');
+    setTimeout(() => div.remove(), 400);
+  }, 3000);
 }
 
 function animateTrickWon(msg) {

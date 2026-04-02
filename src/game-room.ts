@@ -122,7 +122,7 @@ export class GameRoom extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket, code: number): Promise<void> {
-    ws.close(code);
+    try { ws.close(code); } catch { /* already closed */ }
     const session = this.sessions.get(ws);
     this.sessions.delete(ws);
 
@@ -146,6 +146,10 @@ export class GameRoom extends DurableObject {
     if (!anyConnected) {
       await this.ctx.storage.setAlarm(Date.now() + 5 * 60 * 1000);
     }
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    this.sessions.delete(ws);
   }
 
   async alarm(): Promise<void> {

@@ -663,6 +663,27 @@ html, body {
   border-color: rgba(108,92,231,0.5);
 }
 
+/* --- Connection toast --- */
+.connection-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.88);
+  color: #ccc;
+  padding: 0.5rem 1.2rem;
+  border-radius: 20px;
+  z-index: 600;
+  font-size: 0.8rem;
+  pointer-events: none;
+  animation: bannerIn 0.3s ease-out;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.connection-toast.fade-out {
+  animation: bannerOut 0.4s ease-in forwards;
+}
+
 /* --- Trick won banner --- */
 .trick-won-banner {
   position: fixed;
