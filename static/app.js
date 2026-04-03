@@ -801,6 +801,10 @@ function renderPlay(s) {
   const positions = ['bottom', 'left', 'top', 'right'];
   const trickPositions = ['bot', 'left', 'top', 'right'];
 
+  const table = $('play-table');
+  const activeSeatClasses = ['active-seat-bottom','active-seat-top','active-seat-left','active-seat-right'];
+  if (table) activeSeatClasses.forEach((c) => table.classList.remove(c));
+
   for (let i = 0; i < 4; i++) {
     const seat = seatOrder[i];
     const pos = positions[i];
@@ -813,7 +817,10 @@ function renderPlay(s) {
       const sets = s.sets?.[seat] ?? 0;
       label.innerHTML = `<span class="seat-name-row">${statusDot(player.connected)}<span class="seat-name">${esc(text)}</span></span><span class="seat-sets">${sets}</span>`;
       label.className = 'seat-label';
-      if (seat === s.turn) label.classList.add('active-turn');
+      if (seat === s.turn) {
+        label.classList.add('active-turn');
+        if (table) table.classList.add(`active-seat-${pos}`);
+      }
       if (!player.connected) label.classList.add('disconnected');
     } else {
       label.textContent = '';
