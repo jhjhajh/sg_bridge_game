@@ -561,6 +561,13 @@ function renderState() {
   const s = gameState;
   if (!s) return;
 
+  // Spectator hasn't chosen a player yet — show selection screen
+  if (s.isSpectator && s.watchingSeat < 0) {
+    showScreen('screen-spectator');
+    renderSpectatorChoose(s);
+    return;
+  }
+
   switch (s.phase) {
     case 'lobby':
       showScreen('screen-lobby');
@@ -616,9 +623,11 @@ function renderLobby(s) {
 function renderBidding(s) {
   renderPlayerStatusBar($('bidding-players'), s.players);
   const isMyTurn = s.turn === s.mySeat;
-  $('bid-status').textContent = isMyTurn
-    ? "It's your turn to bid!"
-    : `Waiting for ${s.players[s.turn]?.name || '?'} to bid...`;
+  $('bid-status').textContent = s.isSpectator
+    ? `👁 Watching: ${s.players[s.watchingSeat]?.name || '?'}`
+    : isMyTurn
+      ? "It's your turn to bid!"
+      : `Waiting for ${s.players[s.turn]?.name || '?'} to bid...`;
 
   if (s.bid >= 0 && s.bidder >= 0) {
     $('bid-current').textContent = `Current bid: ${s.players[s.bidder].name} - ${getBidFromNum(s.bid)}`;
@@ -646,13 +655,13 @@ function renderBidding(s) {
       const btn = document.createElement('button');
       btn.className = `bid-btn ${getSuitClass(BID_SUITS[si])}`;
       btn.textContent = bidStr;
-      btn.disabled = !isMyTurn || bidNum <= s.bid;
+      btn.disabled = s.isSpectator || !isMyTurn || bidNum <= s.bid;
       btn.addEventListener('click', () => send({ type: 'bid', bidNum }));
       grid.appendChild(btn);
     }
   }
 
-  $('btn-pass').disabled = !isMyTurn;
+  $('btn-pass').disabled = s.isSpectator || !isMyTurn;
   renderHand($('bidding-hand'), s.hand, null, null);
 }
 
@@ -668,7 +677,7 @@ function renderPartner(s) {
   const grid = $('partner-grid');
   grid.innerHTML = '';
 
-  if (isBidder) {
+  if (isBidder && !s.isSpectator) {
     const values = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
     for (const val of values) {
       for (const suit of CARD_SUITS) {
@@ -756,7 +765,7 @@ function renderPlay(s) {
   }
 
   // Hand
-  const isMyTurn = s.turn === s.mySeat;
+  const isMyTurn = !s.isSpectator && s.turn === s.mySeat;
   if (isMyTurn && prevTurn !== s.mySeat) playDingSound();
   prevTurn = s.turn;
   let validSuits = null;
@@ -789,6 +798,25 @@ function getValidSuitsClient(hand, trumpSuit, currentSuit, trumpBroken) {
     if (valid.length === 0 && effectiveTrump) valid.push(effectiveTrump);
   }
   return valid;
+}
+
+// --- Spectator ---
+
+function renderSpectatorChoose(s) {
+  const grid = $('spectator-grid');
+  if (!grid) return;
+  grid.innerHTML = s.players.map((p) =>
+    `<button class="btn spectator-player-btn" onclick="sendWatchSeat(${p.seat})">
+      <span class="spectator-seat-num">Seat ${p.seat + 1}</span>
+      <span class="spectator-player-name">${esc(p.name)}</span>
+    </button>`
+  ).join('');
+}
+
+function sendWatchSeat(seat) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'watchSeat', seat }));
+  }
 }
 
 // --- Game Over ---

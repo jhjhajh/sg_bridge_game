@@ -22,6 +22,12 @@ export interface TrickRecord {
   winner: number;
 }
 
+export interface Spectator {
+  id: string;
+  name: string;
+  watchingSeat: number; // -1 = not yet chosen
+}
+
 export interface BidHistoryEntry {
   seat: number;
   name: string;
@@ -49,6 +55,7 @@ export interface GameState {
   lastTrick: TrickRecord | null;
   trickComplete: boolean;
   bidHistory: BidHistoryEntry[];
+  spectators: Spectator[];
 }
 
 export interface PlayerGameView {
@@ -72,6 +79,8 @@ export interface PlayerGameView {
   lastTrick: TrickRecord | null;
   trickComplete: boolean;
   bidHistory: BidHistoryEntry[];
+  isSpectator: boolean;
+  watchingSeat: number;
 }
 
 export interface Env {

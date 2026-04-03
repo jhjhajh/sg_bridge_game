@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { GameState, PlayerGameView, Suit, Hand, Env, TrickRecord, BidHistoryEntry } from './types';
+import type { GameState, PlayerGameView, Suit, Hand, Env, TrickRecord, BidHistoryEntry, Spectator } from './types';
 import { NUM_PLAYERS, MAX_BID, CARD_SUITS } from './types';
 import { generateHands, getBidFromNum, getNumFromBid, getValidSuits, compareCards } from './bridge';
 import type { ClientMessage, ServerMessage } from './protocol';
@@ -119,6 +119,9 @@ export class GameRoom extends DurableObject {
       case 'playAgain':
         await this.handlePlayAgain(state, session.playerId);
         break;
+      case 'watchSeat':
+        await this.handleWatchSeat(state, session.playerId, msg.seat, ws);
+        break;
     }
   }
 
@@ -186,6 +189,7 @@ export class GameRoom extends DurableObject {
       lastTrick: null,
       trickComplete: false,
       bidHistory: [],
+      spectators: [],
     };
   }
 
@@ -199,7 +203,10 @@ export class GameRoom extends DurableObject {
 
   private buildStateMessage(state: GameState, playerId: string): ServerMessage {
     const player = state.players.find((p) => p.id === playerId);
-    const mySeat = player?.seat ?? -1;
+    const spectator = !player ? state.spectators.find((s) => s.id === playerId) : undefined;
+    const isSpectator = !!spectator;
+    const mySeat = player?.seat ?? (spectator ? spectator.watchingSeat : -1);
+    const watchingSeat = spectator?.watchingSeat ?? -1;
 
     const view: PlayerGameView = {
       roomCode: state.roomCode,
@@ -226,6 +233,8 @@ export class GameRoom extends DurableObject {
       lastTrick: state.lastTrick,
       trickComplete: state.trickComplete,
       bidHistory: state.bidHistory,
+      isSpectator,
+      watchingSeat,
     };
     return { type: 'state', state: view };
   }
@@ -305,8 +314,19 @@ export class GameRoom extends DurableObject {
       return;
     }
 
+    // Check if already a spectator (reconnect)
+    const existingSpectator = state.spectators.find((s) => s.id === playerId);
+    if (existingSpectator) {
+      existingSpectator.name = name;
+      ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
+      return;
+    }
+
     if (state.phase !== 'lobby') {
-      ws.send(JSON.stringify({ type: 'error', message: 'Game already in progress' }));
+      // Game in progress — join as spectator
+      state.spectators.push({ id: playerId, name, watchingSeat: -1 });
+      await this.saveState(state);
+      ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
       return;
     }
 
@@ -661,6 +681,21 @@ export class GameRoom extends DurableObject {
     this.broadcastFullState(state);
   }
 
+  private async handleWatchSeat(
+    state: GameState,
+    playerId: string,
+    seat: number,
+    ws: WebSocket,
+  ): Promise<void> {
+    const spectator = state.spectators.find((s) => s.id === playerId);
+    if (!spectator) return;
+    if (spectator.watchingSeat >= 0) return; // locked — cannot change mid-game
+    if (seat < 0 || seat >= NUM_PLAYERS) return;
+    spectator.watchingSeat = seat;
+    await this.saveState(state);
+    ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
+  }
+
   private async handlePlayAgain(
     state: GameState,
     _playerId: string,
@@ -684,6 +719,7 @@ export class GameRoom extends DurableObject {
     state.passCount = 0;
     state.lastTrick = null;
     state.trickComplete = false;
+    state.bidHistory = [];
 
     await this.saveState(state);
 

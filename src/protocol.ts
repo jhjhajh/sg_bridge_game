@@ -6,7 +6,8 @@ export type ClientMessage =
   | { type: 'pass' }
   | { type: 'selectPartner'; card: string }
   | { type: 'playCard'; card: string }
-  | { type: 'playAgain' };
+  | { type: 'playAgain' }
+  | { type: 'watchSeat'; seat: number };
 
 export type ServerMessage =
   | { type: 'state'; state: PlayerGameView }

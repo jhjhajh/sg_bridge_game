@@ -944,3 +944,42 @@ html, body {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   margin: 0.4rem 0;
 }
+
+/* Spectator seat-select */
+.spectator-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.spectator-player-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1rem 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.spectator-player-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--accent-light);
+}
+
+.spectator-seat-num {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.spectator-player-name {
+  font-size: 1rem;
+  font-weight: 600;
+}
