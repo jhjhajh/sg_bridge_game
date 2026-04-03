@@ -828,35 +828,46 @@ html, body {
 .connection-toast.fade-out {
   animation: bannerOut 0.4s ease-in forwards;
 }
-
-/* --- Trick won banner --- */
-.trick-won-banner {
-  position: fixed;
-  top: 55px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,0.88);
-  color: var(--gold);
-  padding: 0.5rem 1.5rem;
-  border-radius: 20px;
-  z-index: 600;
-  font-size: 0.85rem;
-  font-weight: 600;
-  pointer-events: none;
-  animation: bannerIn 0.3s ease-out;
-  border: 1px solid rgba(255,211,42,0.2);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-}
-.trick-won-banner.fade-out {
-  animation: bannerOut 0.4s ease-in forwards;
-}
 @keyframes bannerIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 @keyframes bannerOut {
   from { opacity: 1; transform: translateX(-50%) translateY(0); }
-  to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 0; transform: translateX(-50%) translateY(10px); }
+}
+
+/* --- Trick won banner (centered on play table) --- */
+.trick-won-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0,0,0,0.88);
+  color: var(--gold);
+  padding: 0.5rem 1.5rem;
+  border-radius: 20px;
+  z-index: 8;
+  font-size: 0.85rem;
+  font-weight: 600;
+  pointer-events: none;
+  text-align: center;
+  max-width: min(92%, 280px);
+  line-height: 1.25;
+  animation: trickBannerIn 0.3s ease-out;
+  border: 1px solid rgba(255,211,42,0.2);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.trick-won-banner.fade-out {
+  animation: trickBannerOut 0.4s ease-in forwards;
+}
+@keyframes trickBannerIn {
+  from { opacity: 0; transform: translate(-50%, calc(-50% - 12px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+@keyframes trickBannerOut {
+  from { opacity: 1; transform: translate(-50%, -50%); }
+  to { opacity: 0; transform: translate(-50%, calc(-50% - 12px)); }
 }
 
 /* --- Trick sweep animations --- */

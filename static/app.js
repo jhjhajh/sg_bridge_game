@@ -736,13 +736,14 @@ function showPartnerNotification(bidderName) {
 }
 
 function showTrickWonBanner(winnerName) {
-  const existing = document.querySelector('.trick-won-banner');
+  const table = $('play-table');
+  const existing = table?.querySelector('.trick-won-banner') ?? document.querySelector('.trick-won-banner');
   if (existing) existing.remove();
 
   const div = document.createElement('div');
   div.className = 'trick-won-banner';
   div.textContent = `${winnerName} wins the trick`;
-  document.body.appendChild(div);
+  (table || document.body).appendChild(div);
   setTimeout(() => {
     div.classList.add('fade-out');
     setTimeout(() => div.remove(), 400);
