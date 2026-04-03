@@ -4,7 +4,8 @@ import { NUM_PLAYERS, MAX_BID, CARD_SUITS, BID_SUITS } from './types';
 import { generateHands, getBidFromNum, getNumFromBid, getValidSuits, compareCards, getNumFromValue } from './bridge';
 import type { ClientMessage, ServerMessage } from './protocol';
 import { recordGameResult, getWinnerSeats } from './stats';
-import { getUser } from './db';
+import { getUser, recordGroupResult } from './db';
+import { sendMessage, isChatMember } from './telegram';
 
 interface SessionInfo {
   playerId: string;
@@ -32,8 +33,8 @@ export class GameRoom extends DurableObject {
     const url = new URL(request.url);
 
     if (url.pathname === '/create' && request.method === 'POST') {
-      const { roomCode } = (await request.json()) as { roomCode: string };
-      const state = this.createInitialState(roomCode);
+      const { roomCode, groupId } = (await request.json()) as { roomCode: string; groupId?: string | null };
+      const state = this.createInitialState(roomCode, groupId ?? null);
       await this.ctx.storage.put('state', state);
       return Response.json({ ok: true });
     }
@@ -181,7 +182,7 @@ export class GameRoom extends DurableObject {
 
   // --- State helpers ---
 
-  private createInitialState(roomCode: string): GameState {
+  private createInitialState(roomCode: string, groupId: string | null = null): GameState {
     return {
       roomCode,
       phase: 'lobby',
@@ -205,6 +206,7 @@ export class GameRoom extends DurableObject {
       bidHistory: [],
       spectators: [],
       firstBidder: 0,
+      groupId,
     };
   }
 
@@ -233,6 +235,7 @@ export class GameRoom extends DurableObject {
         wins: p.wins,
         gamesPlayed: p.gamesPlayed,
         isBot: p.isBot,
+        isGroupMember: p.isGroupMember,
       })),
       hand: mySeat >= 0 && state.hands.length > 0 ? state.hands[mySeat] : null,
       turn: state.turn,
@@ -253,6 +256,8 @@ export class GameRoom extends DurableObject {
       bidHistory: state.bidHistory,
       isSpectator,
       watchingSeat,
+      groupId: state.groupId,
+      isGroupMember: player?.isGroupMember,
     };
     return { type: 'state', state: view };
   }
@@ -370,6 +375,20 @@ export class GameRoom extends DurableObject {
     const seat = state.players.length;
     const newPlayer = { id: playerId, name, seat, connected: true } as import('./types').Player;
     await this.refreshPlayerStats(newPlayer, playerId);
+
+    // Group membership check
+    if (state.groupId && playerId.startsWith('tg_')) {
+      const telegramId = Number(playerId.slice(3));
+      newPlayer.isGroupMember = await isChatMember(
+        (this.env as Env).TELEGRAM_BOT_TOKEN,
+        state.groupId,
+        telegramId,
+      );
+    } else if (state.groupId) {
+      // Guest in a group-linked room — not a member
+      newPlayer.isGroupMember = false;
+    }
+
     state.players.push(newPlayer);
 
     this.broadcast({
@@ -390,6 +409,14 @@ export class GameRoom extends DurableObject {
 
       this.broadcast({ type: 'gameStart', turn: state.firstBidder });
       this.broadcastFullState(state);
+      if (state.groupId) {
+        const names = state.players.map((p) => p.name).join(', ');
+        sendMessage(
+          (this.env as Env).TELEGRAM_BOT_TOKEN,
+          state.groupId,
+          `🎮 Game started!\nPlayers: ${names}`,
+        ).catch(() => {});
+      }
       this.ctx.waitUntil(this.scheduleBotAction());
     } else {
       await this.saveState(state);
@@ -501,6 +528,14 @@ export class GameRoom extends DurableObject {
       setsNeeded: state.setsNeeded,
       name: state.players[state.bidder].name,
     });
+
+    if (state.groupId) {
+      sendMessage(
+        (this.env as Env).TELEGRAM_BOT_TOKEN,
+        state.groupId,
+        `🔨 ${state.players[state.bidder].name} bid ${getBidFromNum(state.bid)}`,
+      ).catch(() => {});
+    }
 
     await this.saveState(state);
     this.broadcastFullState(state);
@@ -680,6 +715,21 @@ export class GameRoom extends DurableObject {
           getWinnerSeats(bidder, partner, true),
         );
 
+        if (state.groupId) {
+          const bidStr = getBidFromNum(state.bid);
+          sendMessage(
+            (this.env as Env).TELEGRAM_BOT_TOKEN,
+            state.groupId,
+            `🏆 ${winnerNames.join(' & ')} won!\nBid ${bidStr}, made ${bidderSets}/${state.setsNeeded} tricks`,
+          ).catch(() => {});
+          await recordGroupResult(
+            (this.env as Env).DB,
+            state.groupId,
+            state.players,
+            getWinnerSeats(bidder, partner, true),
+          );
+        }
+
         await this.saveState(state);
         this.broadcastFullState(state);
         return;
@@ -701,6 +751,21 @@ export class GameRoom extends DurableObject {
           state.players,
           getWinnerSeats(bidder, partner, false),
         );
+
+        if (state.groupId) {
+          const bidStr = getBidFromNum(state.bid);
+          sendMessage(
+            (this.env as Env).TELEGRAM_BOT_TOKEN,
+            state.groupId,
+            `🛡️ ${winnerNames.join(' & ')} defended!\n${state.players[bidder].name}'s ${bidStr} bid failed`,
+          ).catch(() => {});
+          await recordGroupResult(
+            (this.env as Env).DB,
+            state.groupId,
+            state.players,
+            getWinnerSeats(bidder, partner, false),
+          );
+        }
 
         await this.saveState(state);
         this.broadcastFullState(state);
@@ -759,6 +824,23 @@ export class GameRoom extends DurableObject {
     state.lastTrick = null;
     state.trickComplete = false;
     state.bidHistory = [];
+
+    // Re-check group membership for the new round
+    if (state.groupId) {
+      await Promise.all(
+        state.players.map(async (p) => {
+          if (p.id.startsWith('tg_')) {
+            p.isGroupMember = await isChatMember(
+              (this.env as Env).TELEGRAM_BOT_TOKEN,
+              state.groupId!,
+              Number(p.id.slice(3)),
+            );
+          } else {
+            p.isGroupMember = false;
+          }
+        }),
+      );
+    }
 
     await this.saveState(state);
 
@@ -1091,6 +1173,14 @@ export class GameRoom extends DurableObject {
       await this.saveState(state);
       this.broadcast({ type: 'gameStart', turn: state.firstBidder });
       this.broadcastFullState(state);
+      if (state.groupId) {
+        const names = state.players.map((p) => p.name).join(', ');
+        sendMessage(
+          (this.env as Env).TELEGRAM_BOT_TOKEN,
+          state.groupId,
+          `🎮 Game started!\nPlayers: ${names}`,
+        ).catch(() => {});
+      }
       this.ctx.waitUntil(this.scheduleBotAction());
     } else {
       await this.saveState(state);

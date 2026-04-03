@@ -18,6 +18,7 @@ export interface Player {
   wins?: number;
   gamesPlayed?: number;
   isBot?: boolean;
+  isGroupMember?: boolean;
 }
 
 export interface TrickRecord {
@@ -60,12 +61,13 @@ export interface GameState {
   bidHistory: BidHistoryEntry[];
   spectators: Spectator[];
   firstBidder: number;
+  groupId: string | null;
 }
 
 export interface PlayerGameView {
   roomCode: string;
   phase: GamePhase;
-  players: { name: string; seat: number; connected: boolean; wins?: number; gamesPlayed?: number; isBot?: boolean }[];
+  players: { name: string; seat: number; connected: boolean; wins?: number; gamesPlayed?: number; isBot?: boolean; isGroupMember?: boolean }[];
   hand: Hand | null;
   turn: number;
   bidder: number;
@@ -85,6 +87,8 @@ export interface PlayerGameView {
   bidHistory: BidHistoryEntry[];
   isSpectator: boolean;
   watchingSeat: number;
+  groupId: string | null;
+  isGroupMember?: boolean;
 }
 
 export interface Env {

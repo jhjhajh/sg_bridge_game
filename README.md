@@ -60,6 +60,20 @@ npm run deploy
 
 Deploys to Cloudflare Workers. No paid plan required -- the game fits within free tier limits (100K requests/day, 5 GB DO storage).
 
+### Telegram Webhook Setup
+
+After deploying, register the bot webhook once:
+
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<your-worker-domain>/api/telegram"
+```
+
+Expected response: `{"ok":true,"result":true,"description":"Webhook was set"}`
+
+The bot responds to these commands in group chats:
+- `/newgame` — creates a game room and posts a join link
+- `/leaderboard` — posts the group's top 5 leaderboard
+
 ## Telegram bot (legacy)
 
 The original version of this game ran as a Telegram bot. That code is still in the repo:

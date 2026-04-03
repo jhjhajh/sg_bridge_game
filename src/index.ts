@@ -1,6 +1,7 @@
 import type { Env } from './types';
 import { verifyTelegramAuth, signJwt, verifyJwt } from './auth';
-import { upsertUser, getUser, updateDisplayName, getLeaderboard } from './db';
+import { upsertUser, getUser, updateDisplayName, getLeaderboard, upsertGroup, getGroupLeaderboard } from './db';
+import { sendMessage, parseUpdate } from './telegram';
 
 export { GameRoom } from './game-room';
 
@@ -71,17 +72,25 @@ export default {
     if (url.pathname === '/api/leaderboard' && request.method === 'GET') {
       const claims = await getAuthClaims(request, env.JWT_SECRET).catch(() => null);
       const telegramId = claims ? Number(claims.sub) : undefined;
+      const groupId = url.searchParams.get('groupId');
+
+      if (groupId) {
+        const data = await getGroupLeaderboard(env.DB, groupId, telegramId);
+        return Response.json(data);
+      }
+
       const data = await getLeaderboard(env.DB, telegramId);
       return Response.json(data);
     }
 
     if (url.pathname === '/api/create' && request.method === 'POST') {
+      const body = await request.json<{ groupId?: string | null }>().catch(() => ({} as { groupId?: string | null }));
       const roomCode = generateRoomCode();
       const stub = env.GAME_ROOM.getByName(roomCode);
       await stub.fetch(
         new Request('https://internal/create', {
           method: 'POST',
-          body: JSON.stringify({ roomCode }),
+          body: JSON.stringify({ roomCode, groupId: body.groupId ?? null }),
         }),
       );
       return Response.json({ roomCode });
@@ -106,6 +115,55 @@ export default {
 
       const stub = env.GAME_ROOM.getByName(roomCode);
       return stub.fetch(forwardRequest);
+    }
+
+    if (url.pathname === '/api/telegram' && request.method === 'POST') {
+      // Always respond 200 immediately — Telegram retries on non-200
+      const body = await request.json().catch(() => null);
+      const origin = new URL(request.url).origin;
+
+      const cmd = parseUpdate(body);
+      if (!cmd) return new Response(null, { status: 200 });
+
+      if (cmd.command === 'newgame') {
+        await upsertGroup(env.DB, cmd.chatId, cmd.groupName);
+        const roomCode = generateRoomCode();
+        const stub = env.GAME_ROOM.getByName(roomCode);
+        await stub.fetch(
+          new Request('https://internal/create', {
+            method: 'POST',
+            body: JSON.stringify({ roomCode, groupId: cmd.chatId }),
+          }),
+        );
+        await sendMessage(
+          env.TELEGRAM_BOT_TOKEN,
+          cmd.chatId,
+          `🃏 <b>@${cmd.fromUsername}</b> started a new game!\nJoin → ${origin}/#${roomCode}`,
+        );
+      }
+
+      if (cmd.command === 'leaderboard') {
+        const data = await getGroupLeaderboard(env.DB, cmd.chatId);
+        if (data.top.length === 0) {
+          await sendMessage(
+            env.TELEGRAM_BOT_TOKEN,
+            cmd.chatId,
+            '🏆 No games played in this group yet!',
+          );
+        } else {
+          const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+          const rows = data.top
+            .map((e) => `${medals[e.rank - 1] ?? `${e.rank}.`} ${e.displayName} — ${e.wins}W / ${e.gamesPlayed}G`)
+            .join('\n');
+          await sendMessage(
+            env.TELEGRAM_BOT_TOKEN,
+            cmd.chatId,
+            `🏆 <b>Group Leaderboard</b>\n${rows}`,
+          );
+        }
+      }
+
+      return new Response(null, { status: 200 });
     }
 
     return new Response(null, { status: 404 });

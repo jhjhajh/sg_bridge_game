@@ -82,6 +82,37 @@ function renderLeaderboard(data) {
   section.innerHTML = `<div class="lb-card"><div class="lb-header">🏆 Leaderboard</div>${rows}</div>`;
 }
 
+async function renderGroupLeaderboard(groupId) {
+  const el = $('gameover-group-lb');
+  if (!el) return;
+  try {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const res = await fetch(`/api/leaderboard?groupId=${encodeURIComponent(groupId)}`, { headers });
+    if (!res.ok) { el.innerHTML = ''; return; }
+    const data = await res.json();
+    if (!data.top || data.top.length === 0) { el.innerHTML = ''; return; }
+    const medals = ['🥇', '🥈', '🥉', '', ''];
+    let rows = data.top.map((e) =>
+      `<div class="lb-row">
+        <span class="lb-rank">${medals[e.rank - 1] || '#' + e.rank}</span>
+        <span class="lb-name">${esc(e.displayName)}</span>
+        <span class="lb-stats">${e.wins}W / ${e.gamesPlayed}G</span>
+      </div>`
+    ).join('');
+    if (data.me) {
+      rows += `<div class="lb-divider"></div>
+      <div class="lb-row lb-me">
+        <span class="lb-rank">#${data.me.rank}</span>
+        <span class="lb-name">You</span>
+        <span class="lb-stats">${data.me.wins}W / ${data.me.gamesPlayed}G</span>
+      </div>`;
+    }
+    el.innerHTML = `<div class="lb-card"><div class="lb-header">🏆 Group Leaderboard</div>${rows}</div>`;
+  } catch {
+    el.innerHTML = '';
+  }
+}
+
 // --- Auth ---
 
 async function loadTelegramWidget() {
@@ -652,11 +683,14 @@ function renderLobby(s) {
     const statsHtml = (!p.isBot && p.gamesPlayed)
       ? `<span class="lobby-stats">${p.wins}W / ${p.gamesPlayed}G</span>`
       : '';
+    const notRankedBadge = (s.groupId && p.isGroupMember === false && !p.isBot)
+      ? '<span class="not-ranked-badge">⚠️ not ranked</span>'
+      : '';
     const isLastBot = p.isBot && p.seat === s.players.length - 1;
     const removeBtn = (isHost && isLastBot)
       ? `<button class="bot-remove-btn" onclick="send({type:'removeBot'})">✕</button>`
       : '';
-    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}${removeBtn}`;
+    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}${notRankedBadge}${removeBtn}`;
     list.appendChild(item);
   }
   const remaining = NUM_PLAYERS - s.players.length;
@@ -904,6 +938,12 @@ function renderGameOver(s) {
     if (i === s.bidder) nameText += ' (Bidder)';
     item.innerHTML = `<span class="name">${esc(nameText)}</span><span class="sets-won">${s.sets[i]} sets</span>`;
     scores.appendChild(item);
+  }
+
+  const groupLbEl = $('gameover-group-lb');
+  if (groupLbEl) groupLbEl.innerHTML = '';
+  if (s.groupId) {
+    renderGroupLeaderboard(s.groupId);
   }
 }
 
