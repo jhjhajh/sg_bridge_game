@@ -2,6 +2,7 @@ import type { Env } from './types';
 import { verifyTelegramAuth, signJwt, verifyJwt } from './auth';
 import { upsertUser, getUser, updateDisplayName, getLeaderboard, upsertGroup, getGroupLeaderboard } from './db';
 import { sendMessage, parseUpdate } from './telegram';
+import { getPlayerStats, getPairStats } from './stats-db';
 
 export { GameRoom } from './game-room';
 
@@ -164,6 +165,29 @@ export default {
       }
 
       return new Response(null, { status: 200 });
+    }
+
+    if (url.pathname === '/api/stats' && request.method === 'GET') {
+      const groupId = url.searchParams.get('groupId') ?? undefined;
+      const data = await getPlayerStats(env.DB, groupId);
+      return Response.json(data);
+    }
+
+    if (url.pathname === '/api/stats/pairs' && request.method === 'GET') {
+      const groupId = url.searchParams.get('groupId') ?? undefined;
+      const data = await getPairStats(env.DB, groupId);
+      return Response.json(data);
+    }
+
+    if (url.pathname === '/api/groups' && request.method === 'GET') {
+      const rows = await env.DB
+        .prepare('SELECT group_id, group_name FROM groups ORDER BY group_name ASC')
+        .all<{ group_id: string; group_name: string }>();
+      const groups = (rows.results ?? []).map((r) => ({
+        groupId: r.group_id,
+        groupName: r.group_name,
+      }));
+      return Response.json(groups);
     }
 
     return new Response(null, { status: 404 });
