@@ -17,6 +17,7 @@ export interface Player {
   connected: boolean;
   wins?: number;
   gamesPlayed?: number;
+  isBot?: boolean;
 }
 
 export interface TrickRecord {
@@ -64,7 +65,7 @@ export interface GameState {
 export interface PlayerGameView {
   roomCode: string;
   phase: GamePhase;
-  players: { name: string; seat: number; connected: boolean; wins?: number; gamesPlayed?: number }[];
+  players: { name: string; seat: number; connected: boolean; wins?: number; gamesPlayed?: number; isBot?: boolean }[];
   hand: Hand | null;
   turn: number;
   bidder: number;

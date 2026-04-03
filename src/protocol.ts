@@ -7,7 +7,9 @@ export type ClientMessage =
   | { type: 'selectPartner'; card: string }
   | { type: 'playCard'; card: string }
   | { type: 'playAgain' }
-  | { type: 'watchSeat'; seat: number };
+  | { type: 'watchSeat'; seat: number }
+  | { type: 'addBot' }
+  | { type: 'removeBot' };
 
 export type ServerMessage =
   | { type: 'state'; state: PlayerGameView }

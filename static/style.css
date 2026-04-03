@@ -996,3 +996,24 @@ html, body {
   font-size: 1rem;
   font-weight: 600;
 }
+
+/* --- Bot lobby UI --- */
+.bot-icon {
+  font-size: 0.9rem;
+  margin-right: 0.1rem;
+}
+.bot-remove-btn {
+  background: none;
+  border: 1px solid rgba(255, 68, 87, 0.3);
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: background var(--transition);
+}
+.bot-remove-btn:hover {
+  background: rgba(255, 68, 87, 0.15);
+}

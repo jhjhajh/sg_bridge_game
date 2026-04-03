@@ -644,19 +644,34 @@ function renderLobby(s) {
   $('lobby-room-code').textContent = s.roomCode;
   const list = $('lobby-players');
   list.innerHTML = '';
+  const isHost = s.mySeat === 0 && !s.isSpectator;
   for (const p of s.players) {
     const item = document.createElement('div');
     item.className = 'player-item';
-    const statsHtml = p.gamesPlayed
+    const botIcon = p.isBot ? '<span class="bot-icon">🤖</span>' : '';
+    const statsHtml = (!p.isBot && p.gamesPlayed)
       ? `<span class="lobby-stats">${p.wins}W / ${p.gamesPlayed}G</span>`
       : '';
-    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}`;
+    const isLastBot = p.isBot && p.seat === s.players.length - 1;
+    const removeBtn = (isHost && isLastBot)
+      ? `<button class="bot-remove-btn" onclick="send({type:'removeBot'})">✕</button>`
+      : '';
+    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}${removeBtn}`;
     list.appendChild(item);
   }
   const remaining = NUM_PLAYERS - s.players.length;
   $('lobby-status').textContent = remaining > 0
     ? `Waiting for ${remaining} more player(s)...`
     : 'Game starting...';
+
+  const addBotBtn = $('lobby-add-bot');
+  if (addBotBtn) {
+    if (isHost && remaining > 0) {
+      addBotBtn.classList.remove('hidden');
+    } else {
+      addBotBtn.classList.add('hidden');
+    }
+  }
 }
 
 // --- Bidding ---

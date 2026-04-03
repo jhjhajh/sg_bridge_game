@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { GameState, PlayerGameView, Suit, Hand, Env, TrickRecord, BidHistoryEntry, Spectator } from './types';
 import { NUM_PLAYERS, MAX_BID, CARD_SUITS } from './types';
-import { generateHands, getBidFromNum, getNumFromBid, getValidSuits, compareCards } from './bridge';
+import { generateHands, getBidFromNum, getNumFromBid, getValidSuits, compareCards, getNumFromValue } from './bridge';
 import type { ClientMessage, ServerMessage } from './protocol';
 import { recordGameResult, getWinnerSeats } from './stats';
 import { getUser } from './db';
@@ -12,6 +12,7 @@ interface SessionInfo {
 
 export class GameRoom extends DurableObject {
   sessions: Map<WebSocket, SessionInfo>;
+  private botActionRunning = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -108,21 +109,32 @@ export class GameRoom extends DurableObject {
         break;
       case 'bid':
         await this.handleBid(state, session.playerId, msg.bidNum);
+        this.ctx.waitUntil(this.scheduleBotAction());
         break;
       case 'pass':
         await this.handlePass(state, session.playerId);
+        this.ctx.waitUntil(this.scheduleBotAction());
         break;
       case 'selectPartner':
         await this.handleSelectPartner(state, session.playerId, msg.card);
+        this.ctx.waitUntil(this.scheduleBotAction());
         break;
       case 'playCard':
         await this.handlePlayCard(state, session.playerId, msg.card);
+        this.ctx.waitUntil(this.scheduleBotAction());
         break;
       case 'playAgain':
         await this.handlePlayAgain(state, session.playerId);
+        this.ctx.waitUntil(this.scheduleBotAction());
         break;
       case 'watchSeat':
         await this.handleWatchSeat(state, session.playerId, msg.seat, ws);
+        break;
+      case 'addBot':
+        await this.handleAddBot(state, session.playerId);
+        break;
+      case 'removeBot':
+        await this.handleRemoveBot(state, session.playerId);
         break;
     }
   }
@@ -220,6 +232,7 @@ export class GameRoom extends DurableObject {
         connected: p.connected,
         wins: p.wins,
         gamesPlayed: p.gamesPlayed,
+        isBot: p.isBot,
       })),
       hand: mySeat >= 0 && state.hands.length > 0 ? state.hands[mySeat] : null,
       turn: state.turn,
@@ -369,14 +382,15 @@ export class GameRoom extends DurableObject {
     if (state.players.length === NUM_PLAYERS) {
       state.phase = 'bidding';
       state.hands = generateHands();
-      state.turn = 0;
+      state.turn = state.firstBidder;
       state.bidder = -1;
       state.bid = -1;
       state.passCount = 0;
       await this.saveState(state);
 
-      this.broadcast({ type: 'gameStart', turn: 0 });
+      this.broadcast({ type: 'gameStart', turn: state.firstBidder });
       this.broadcastFullState(state);
+      this.ctx.waitUntil(this.scheduleBotAction());
     } else {
       await this.saveState(state);
       this.broadcastFullState(state);
@@ -748,7 +762,168 @@ export class GameRoom extends DurableObject {
 
     await this.saveState(state);
 
-    this.broadcast({ type: 'gameStart', turn: 0 });
+    this.broadcast({ type: 'gameStart', turn: nextFirstBidder });
+    this.broadcastFullState(state);
+  }
+
+  // --- Bot support ---
+
+  private async scheduleBotAction(): Promise<void> {
+    await Promise.resolve(); // micro-yield so any pending finally blocks run first
+    if (this.botActionRunning) return;
+    this.botActionRunning = true;
+    try {
+      while (true) {
+        await new Promise<void>((r) => setTimeout(r, 700));
+        const state = await this.getState();
+        if (!state) break;
+        const acted = await this.triggerBotAction(state);
+        if (!acted) break;
+      }
+    } finally {
+      this.botActionRunning = false;
+    }
+  }
+
+  private async triggerBotAction(state: GameState): Promise<boolean> {
+    if (state.phase === 'bidding') {
+      const current = state.players[state.turn];
+      if (!current?.isBot) return false;
+      await this.handlePass(state, current.id);
+      return true;
+    }
+    if (state.phase === 'partner') {
+      const bidder = state.players[state.bidder];
+      if (!bidder?.isBot) return false;
+      const card = this.getBotPartnerCard(state, state.bidder);
+      await this.handleSelectPartner(state, bidder.id, card);
+      return true;
+    }
+    if (state.phase === 'play') {
+      const current = state.players[state.turn];
+      if (!current?.isBot) return false;
+      const card = this.getBotCard(state, state.turn);
+      if (!card) return false;
+      await this.handlePlayCard(state, current.id, card);
+      return true;
+    }
+    return false;
+  }
+
+  private getBotCard(state: GameState, seat: number): string {
+    const hand = state.hands[seat];
+    const validSuits = getValidSuits(hand, state.trumpSuit, state.currentSuit, state.trumpBroken);
+    if (validSuits.length === 0) return '';
+
+    const validCards: string[] = [];
+    for (const suit of validSuits) {
+      for (const value of hand[suit]) {
+        validCards.push(`${value} ${suit}`);
+      }
+    }
+    if (validCards.length === 0) return '';
+
+    // If trick is complete or no cards played yet, bot leads with its lowest card
+    const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
+    if (!trickInProgress) {
+      return this.lowestCard(validCards);
+    }
+
+    // Build ordered cards played so far (from firstPlayer)
+    const orderedSoFar: string[] = [];
+    for (let i = 0; i < NUM_PLAYERS; i++) {
+      const idx = (state.firstPlayer + i) % NUM_PLAYERS;
+      if (state.playedCards[idx] !== null) {
+        orderedSoFar.push(state.playedCards[idx]!);
+      }
+    }
+
+    // Find cards that would win
+    const winningCards: string[] = [];
+    for (const card of validCards) {
+      const testCards = [...orderedSoFar, card];
+      const winnerOffset = compareCards(testCards, state.currentSuit!, state.trumpSuit);
+      if (winnerOffset === testCards.length - 1) {
+        winningCards.push(card);
+      }
+    }
+
+    return winningCards.length > 0 ? this.lowestCard(winningCards) : this.lowestCard(validCards);
+  }
+
+  private lowestCard(cards: string[]): string {
+    return cards.reduce((best, card) => {
+      const bestNum = getNumFromValue(best.split(' ')[0]);
+      const cardNum = getNumFromValue(card.split(' ')[0]);
+      return cardNum < bestNum ? card : best;
+    });
+  }
+
+  private getBotPartnerCard(state: GameState, bidderSeat: number): string {
+    // Pick the highest card from another player's hand (strongest partner)
+    for (const suit of ['♠', '♥', '♦', '♣'] as import('./types').Suit[]) {
+      for (let s = 0; s < NUM_PLAYERS; s++) {
+        if (s === bidderSeat) continue;
+        const values = state.hands[s][suit];
+        if (values.length > 0) return `${values[0]} ${suit}`;
+      }
+    }
+    return 'A ♠';
+  }
+
+  private async handleAddBot(state: GameState, playerId: string): Promise<void> {
+    if (state.phase !== 'lobby') return;
+    const requestor = state.players.find((p) => p.id === playerId);
+    if (!requestor || requestor.seat !== 0) return;
+    if (state.players.length >= NUM_PLAYERS) return;
+
+    const botSeat = state.players.length;
+    const botNames = ['Bot Alpha', 'Bot Beta', 'Bot Gamma'];
+    const botName = botNames[botSeat - 1] ?? `Bot ${botSeat}`;
+    const bot: import('./types').Player = {
+      id: `bot_${botSeat}`,
+      name: botName,
+      seat: botSeat,
+      connected: true,
+      isBot: true,
+    };
+    state.players.push(bot);
+
+    this.broadcast({
+      type: 'joined',
+      playerName: botName,
+      seat: botSeat,
+      playerCount: state.players.length,
+    });
+
+    if (state.players.length === NUM_PLAYERS) {
+      state.phase = 'bidding';
+      state.hands = generateHands();
+      state.turn = state.firstBidder;
+      state.bidder = -1;
+      state.bid = -1;
+      state.passCount = 0;
+      await this.saveState(state);
+      this.broadcast({ type: 'gameStart', turn: state.firstBidder });
+      this.broadcastFullState(state);
+      this.ctx.waitUntil(this.scheduleBotAction());
+    } else {
+      await this.saveState(state);
+      this.broadcastFullState(state);
+    }
+  }
+
+  private async handleRemoveBot(state: GameState, playerId: string): Promise<void> {
+    if (state.phase !== 'lobby') return;
+    const requestor = state.players.find((p) => p.id === playerId);
+    if (!requestor || requestor.seat !== 0) return;
+
+    // Only remove the last player if it's a bot
+    const lastPlayer = state.players[state.players.length - 1];
+    if (!lastPlayer?.isBot) return;
+
+    state.players.pop();
+    await this.saveState(state);
     this.broadcastFullState(state);
   }
 }
