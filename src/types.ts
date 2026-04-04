@@ -39,6 +39,13 @@ export interface BidHistoryEntry {
   bidNum: number | null; // null = pass
 }
 
+export interface TrickLogEntry {
+  trickNum: number;   // 1-based
+  playOrder: number;  // 1 = lead, 4 = last
+  seat: number;
+  card: string;       // e.g. "A ♠"
+}
+
 export interface GameState {
   roomCode: string;
   phase: GamePhase;
@@ -67,6 +74,8 @@ export interface GameState {
   partnerRevealed: boolean;
   gameId: string;
   readySeats: number[];
+  trickLog: TrickLogEntry[];
+  initialHands: Hand[];
 }
 
 export interface PlayerGameView {
@@ -98,6 +107,8 @@ export interface PlayerGameView {
   partnerSeat: number;
   spectators: { name: string; watchingSeat: number }[];
   readySeats: number[];
+  allInitialHands: Hand[] | null;
+  allFinalHands: Hand[] | null;
 }
 
 export interface Env {

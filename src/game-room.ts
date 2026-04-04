@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { GameState, PlayerGameView, Suit, Hand, Env, TrickRecord, BidHistoryEntry, Spectator } from './types';
+import type { GameState, PlayerGameView, Suit, Hand, Env, TrickRecord, BidHistoryEntry, Spectator, TrickLogEntry } from './types';
 import { NUM_PLAYERS, MAX_BID, CARD_SUITS, BID_SUITS } from './types';
 import { generateHands, getBidFromNum, getNumFromBid, getValidSuits, compareCards, getNumFromValue } from './bridge';
 import type { ClientMessage, ServerMessage } from './protocol';
@@ -7,6 +7,7 @@ import { recordGameResult, getWinnerSeats } from './stats';
 import { getUser, recordGroupResult } from './db';
 import { sendMessage, isChatMember } from './telegram';
 import { recordGameStats, recordEloUpdate } from './stats-db';
+import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
 
 interface SessionInfo {
   playerId: string;
@@ -236,6 +237,8 @@ export class GameRoom extends DurableObject {
       partnerRevealed: false,
       gameId: crypto.randomUUID(),
       readySeats: [],
+      trickLog: [],
+      initialHands: [],
     };
   }
 
@@ -292,6 +295,12 @@ export class GameRoom extends DurableObject {
       partnerSeat: state.partnerRevealed ? state.partner : -1,
       spectators: state.spectators.map((sp) => ({ name: sp.name, watchingSeat: sp.watchingSeat })),
       readySeats: state.readySeats,
+      allInitialHands: state.phase === 'gameover' && state.initialHands.length > 0
+        ? state.initialHands
+        : null,
+      allFinalHands: state.phase === 'gameover' && state.initialHands.length > 0
+        ? state.hands
+        : null,
     };
     return { type: 'state', state: view };
   }
@@ -661,6 +670,10 @@ export class GameRoom extends DurableObject {
       state.trickComplete = false;
     }
 
+    const trickNum = state.sets.reduce((s, v) => s + v, 0) + 1;
+    const playOrder = state.playedCards.filter((c) => c !== null).length + 1;
+    state.trickLog.push({ trickNum, playOrder, seat, card });
+
     state.playedCards[seat] = card;
 
     if (card === state.partnerCard && !state.partnerRevealed) {
@@ -779,6 +792,25 @@ export class GameRoom extends DurableObject {
           getWinnerSeats(bidder, partner, true),
         );
 
+        this.ctx.waitUntil(
+          Promise.all([
+            updateGameFinalHands((this.env as Env).DB, state.gameId, state.players, state.hands),
+            insertGameTricks((this.env as Env).DB, state.gameId, state.trickLog),
+            insertGameMetadata(
+              (this.env as Env).DB,
+              state.gameId,
+              bidder,
+              state.bid,
+              state.trumpSuit,
+              state.partnerCard ?? '',
+              state.bidHistory,
+              state.players,
+              state.sets,
+              'bidder',
+            ),
+          ]).catch(() => {}),
+        );
+
         await this.saveState(state);
         this.broadcastFullState(state);
         return;
@@ -836,6 +868,25 @@ export class GameRoom extends DurableObject {
           bidder,
           partner,
           getWinnerSeats(bidder, partner, false),
+        );
+
+        this.ctx.waitUntil(
+          Promise.all([
+            updateGameFinalHands((this.env as Env).DB, state.gameId, state.players, state.hands),
+            insertGameTricks((this.env as Env).DB, state.gameId, state.trickLog),
+            insertGameMetadata(
+              (this.env as Env).DB,
+              state.gameId,
+              bidder,
+              state.bid,
+              state.trumpSuit,
+              state.partnerCard ?? '',
+              state.bidHistory,
+              state.players,
+              state.sets,
+              'opponents',
+            ),
+          ]).catch(() => {}),
         );
 
         await this.saveState(state);
@@ -1238,7 +1289,18 @@ export class GameRoom extends DurableObject {
     state.lastTrick = null;
     state.trickComplete = false;
     state.bidHistory = [];
+    state.trickLog = [];
+    state.initialHands = state.hands.map((h) => ({
+      '♣': [...h['♣']],
+      '♦': [...h['♦']],
+      '♥': [...h['♥']],
+      '♠': [...h['♠']],
+    }));
     await this.saveState(state);
+    this.ctx.waitUntil(
+      insertGameHands((this.env as Env).DB, state.gameId, state.players, state.hands)
+        .catch(() => {}),
+    );
     this.broadcast({ type: 'gameStart', turn: state.firstBidder });
     this.broadcastFullState(state);
     if (state.groupId) {

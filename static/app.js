@@ -1196,6 +1196,46 @@ function sendWatchSeat(seat) {
 }
 
 // --- Game Over ---
+function renderGameoverHands(s) {
+  const container = $('gameover-hands');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!s.allInitialHands || !s.allFinalHands) return;
+
+  // Render one row per player in seat order (0–3)
+  const sorted = [...s.players].sort((a, b) => a.seat - b.seat);
+  for (const p of sorted) {
+    const initial = s.allInitialHands[p.seat];
+    const finalHand = s.allFinalHands[p.seat];
+    if (!initial) continue;
+
+    const row = document.createElement('div');
+    row.className = 'gameover-hand-row';
+
+    const label = document.createElement('div');
+    label.className = 'hand-label';
+    label.textContent = p.name;
+    row.appendChild(label);
+
+    const cards = document.createElement('div');
+    cards.className = 'gameover-hand-cards';
+
+    for (const suit of CARD_SUITS) {
+      const initialValues = initial[suit] || [];
+      const finalSet = new Set(finalHand ? (finalHand[suit] || []) : []);
+      for (const value of initialValues) {
+        const played = !finalSet.has(value);
+        const el = createCardEl(value, suit, { mini: true });
+        if (played) el.classList.add('played');
+        cards.appendChild(el);
+      }
+    }
+
+    row.appendChild(cards);
+    container.appendChild(row);
+  }
+}
+
 function renderGameOver(s) {
   renderPlayerStatusBar($('gameover-players'), s.players);
   renderSpectatorBar(s);
@@ -1261,6 +1301,8 @@ function renderGameOver(s) {
   if (s.groupId) {
     renderGroupLeaderboard(s.groupId);
   }
+
+  renderGameoverHands(s);
 
   // Ready list
   const readySeats = s.readySeats ?? [];

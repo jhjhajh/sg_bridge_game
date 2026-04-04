@@ -885,6 +885,39 @@ body.has-spectators .screen {
 .gameover-actions .btn-ghost {
   font-size: 0.85rem; padding: 0.6rem;
 }
+.gameover-hands {
+  width: 100%;
+  margin: 1rem 0 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.gameover-hand-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.gameover-hand-row .hand-label {
+  font-size: 0.7rem;
+  color: var(--text-dimmer);
+  text-align: left;
+}
+.gameover-hand-cards {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: 100%;
+}
+.gameover-hand-cards .card-mini {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  font-size: clamp(0.5rem, 2.6vw, 0.75rem);
+  padding: 0;
+}
+.gameover-hand-cards .card-mini.played {
+  opacity: 0.3;
+}
 .gameover-ready-list {
   display: flex;
   flex-wrap: wrap;
