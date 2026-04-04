@@ -61,7 +61,7 @@ export interface LeaderboardEntry {
 }
 
 /**
- * Returns top 5 players by wins (min 1 game played) + optionally the caller's rank.
+ * Returns top 5 players by ELO (min 1 game played) + optionally the caller's rank.
  * If telegramId is provided and not in top 5, their rank is returned separately.
  */
 export async function getLeaderboard(
@@ -172,7 +172,7 @@ export interface GroupLeaderboardEntry {
 }
 
 /**
- * Returns top 5 players by wins in this group + optionally the caller's rank.
+ * Returns top 5 players by ELO in this group + optionally the caller's rank.
  */
 export async function getGroupLeaderboard(
   db: D1Database,
