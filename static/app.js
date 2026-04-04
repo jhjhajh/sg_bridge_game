@@ -1063,7 +1063,7 @@ function renderPlay(s) {
         ? '<span class="partner-star">★</span>'
         : '';
       const sets = s.sets?.[seat] ?? 0;
-      label.innerHTML = `<span class="seat-name-row">${bidderStar}${statusDot(player.connected)}<span class="seat-name">${esc(player.name)}</span>${partnerStar}</span><span class="seat-sets">${sets}</span>`;
+      label.innerHTML = `<span class="seat-name-row">${bidderStar}${partnerStar}${statusDot(player.connected)}<span class="seat-name">${esc(player.name)}</span></span><span class="seat-sets">${sets}</span>`;
       label.className = 'seat-label';
       if (seat === s.turn) {
         label.classList.add('active-turn');

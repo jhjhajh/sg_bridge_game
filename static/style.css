@@ -555,7 +555,7 @@ html, body {
 .partner-star {
   color: #c0c0c0;
   font-size: 0.85rem;
-  margin-left: 0.3rem;
+  margin-right: 0.3rem;
   line-height: 1;
 }
 .seat-sets {
@@ -593,6 +593,7 @@ html, body {
 .trick-card-left  { grid-area: left; }
 .trick-card-right { grid-area: right; }
 .trick-card-bot   { grid-area: bot; }
+.trick-card .card { width: clamp(48px, 12vw, 72px); }
 
 .trick-area.trick-complete .trick-card {
   opacity: 0.4;
