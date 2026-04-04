@@ -1074,36 +1074,77 @@ export class GameRoom extends DurableObject {
 
   private getBotCardAsBidderTeam(state: GameState, seat: number, validCards: string[]): string {
     const currentWinnerSeat = this.getCurrentTrickWinnerSeat(state);
+
+    // Teammate already winning — don't steal the trick
     if (currentWinnerSeat !== null && this.isOnBidderTeam(state, currentWinnerSeat)) {
-      // Teammate winning — dump from shortest side suit, don't steal
       return this.smartDump(state, seat, validCards);
     }
-    // Opposition winning — play lowest card that takes the trick; else dump smartly
+
+    // Boss card: guaranteed winner regardless of position — always play it
+    const bossCard = validCards.find((c) => this.isBossCard(state, c));
+    if (bossCard) return bossCard;
+
+    const afterUs = this.getPlayersAfter(state, seat);
+    const teammateIsLast = afterUs.length > 0 && this.isOnBidderTeam(state, afterUs[afterUs.length - 1]);
+    const partnerBidSuits = this.getPartnerBidSuits(state);
+
+    // Teammate plays last — they have best information; dump unless led suit is not their strength
+    if (teammateIsLast) {
+      const ledSuitIsPartnerStrength = state.currentSuit && partnerBidSuits.has(state.currentSuit);
+      if (!ledSuitIsPartnerStrength) return this.smartDump(state, seat, validCards);
+      // Partner is strong in this suit but we might be able to save their card — fall through to win
+    }
+
+    // Opposition winning — try to win
     const orderedSoFar = this.getOrderedCardsPlayed(state);
     const winning = validCards.filter((card) => {
       const test = [...orderedSoFar, card];
       return compareCards(test, state.currentSuit!, state.trumpSuit) === test.length - 1;
     });
-    return winning.length > 0 ? this.lowestCard(winning) : this.smartDump(state, seat, validCards);
+
+    if (winning.length === 0) return this.smartDump(state, seat, validCards);
+
+    // If an opponent plays after us, commit highest winning card to guard against being overtaken
+    const opponentAfter = afterUs.some((s) => !this.isOnBidderTeam(state, s));
+    return opponentAfter ? this.highestCard(winning) : this.lowestCard(winning);
   }
 
   private getBotCardAsOpposition(state: GameState, seat: number, validCards: string[]): string {
     const currentWinnerSeat = this.getCurrentTrickWinnerSeat(state);
-    // If an opposition teammate is already winning, dump lowest (no need to spend cards)
+
+    // Opposition teammate already winning — don't steal the trick
     if (currentWinnerSeat !== null && !this.isOnBidderTeam(state, currentWinnerSeat)) {
-      return this.lowestCard(validCards);
+      return this.smartDump(state, seat, validCards);
     }
 
-    // Bidder's team is winning — try to beat them (prioritise beating the bidder)
+    // Boss card: guaranteed winner regardless of position — always play it
+    const bossCard = validCards.find((c) => this.isBossCard(state, c));
+    if (bossCard) return bossCard;
+
+    const afterUs = this.getPlayersAfter(state, seat);
+    const oppTeammateIsLast = afterUs.length > 0 && !this.isOnBidderTeam(state, afterUs[afterUs.length - 1]);
+    const bidderBidSuits = this.getBidderBidSuits(state);
+
+    // Opposition teammate plays last — let them decide with most information
+    if (oppTeammateIsLast) {
+      // If led suit is safe (not bidder's strength), trust teammate to handle it
+      const ledSuitIsBidderStrength = state.currentSuit && bidderBidSuits.has(state.currentSuit);
+      if (!ledSuitIsBidderStrength) return this.smartDump(state, seat, validCards);
+      // Bidder's strong suit — teammate may not be able to beat it; try ourselves
+    }
+
+    // Bidder team winning — try to beat them
     const orderedSoFar = this.getOrderedCardsPlayed(state);
     const winning = validCards.filter((card) => {
       const test = [...orderedSoFar, card];
       return compareCards(test, state.currentSuit!, state.trumpSuit) === test.length - 1;
     });
-    if (winning.length > 0) return this.lowestCard(winning);
 
-    // Can't win — dump from shortest non-trump side suit to conserve trump and long suits
-    return this.smartDump(state, seat, validCards);
+    if (winning.length === 0) return this.smartDump(state, seat, validCards);
+
+    // If a bidder-team player plays after us, commit highest winning card to guard against re-overtake
+    const bidderTeamAfter = afterUs.some((s) => this.isOnBidderTeam(state, s));
+    return bidderTeamAfter ? this.highestCard(winning) : this.lowestCard(winning);
   }
 
   private getBotLeadCard(
@@ -1112,16 +1153,9 @@ export class GameRoom extends DurableObject {
     validCards: string[],
     onBidderTeam: boolean,
   ): string {
-    // Build suit sets from bid history
-    const partnerBidSuits = new Set<string>();
-    const bidderBidSuits = new Set<string>();
-    for (const entry of state.bidHistory) {
-      if (entry.bidNum === null) continue;
-      const suit = getBidFromNum(entry.bidNum).split(' ')[1];
-      if (suit === '🚫') continue;
-      if (entry.seat === state.partner) partnerBidSuits.add(suit);
-      if (entry.seat === state.bidder) bidderBidSuits.add(suit);
-    }
+    const partnerBidSuits = this.getPartnerBidSuits(state);
+    const bidderBidSuits = this.getBidderBidSuits(state);
+    const voids = this.getVoids(state);
 
     if (onBidderTeam) {
       // Prefer leading a suit the partner bid (they likely have more) — lead high to establish
@@ -1129,13 +1163,24 @@ export class GameRoom extends DurableObject {
         (c) => partnerBidSuits.has(c.split(' ')[1]) && c.split(' ')[1] !== state.trumpSuit,
       );
       if (partnerSuitCards.length > 0) return this.highestCard(partnerSuitCards);
-      // Else lead longest non-trump suit
-      return this.leadLongestNonTrump(state, seat, validCards);
+
+      // Avoid suits where an opponent is void (they would ruff)
+      const oppSeats = [0, 1, 2, 3].filter((s) => s !== seat && !this.isOnBidderTeam(state, s));
+      const nonRuffable = validCards.filter((c) => {
+        const suit = c.split(' ')[1] as Suit;
+        if (suit === state.trumpSuit) return false;
+        return !oppSeats.some((s) => voids.get(s)?.has(suit));
+      });
+      return this.leadLongestNonTrump(state, seat, nonRuffable.length > 0 ? nonRuffable : validCards);
     } else {
-      // Opposition: never lead trump; avoid suits the bidder bid (they're strong there)
-      const safe = validCards.filter(
-        (c) => c.split(' ')[1] !== state.trumpSuit && !bidderBidSuits.has(c.split(' ')[1]) && !partnerBidSuits.has(c.split(' ')[1]),
-      );
+      // Opposition: never lead trump; avoid bidder's bid suits and suits where bidder team is void
+      const bidderTeamSeats = [0, 1, 2, 3].filter((s) => this.isOnBidderTeam(state, s));
+      const safe = validCards.filter((c) => {
+        const suit = c.split(' ')[1];
+        if (suit === state.trumpSuit) return false;
+        if (bidderBidSuits.has(suit) || partnerBidSuits.has(suit)) return false;
+        return !bidderTeamSeats.some((s) => voids.get(s)?.has(suit as Suit));
+      });
       if (safe.length > 0) return this.lowestCard(safe);
       // Fallback: at least avoid trump
       const nonTrump = validCards.filter((c) => c.split(' ')[1] !== state.trumpSuit);
@@ -1145,21 +1190,102 @@ export class GameRoom extends DurableObject {
 
   private leadLongestNonTrump(state: GameState, seat: number, validCards: string[]): string {
     const hand = state.hands[seat];
-    let bestSuit: import('./types').Suit | null = null;
+    // Only consider suits available in the provided pool (may be a filtered subset)
+    const availableSuits = new Set(validCards.map((c) => c.split(' ')[1]));
+    let bestSuit: Suit | null = null;
     let bestLen = 0;
     for (const suit of CARD_SUITS) {
       if (suit === state.trumpSuit) continue;
+      if (!availableSuits.has(suit)) continue;
       if (hand[suit].length > bestLen) { bestLen = hand[suit].length; bestSuit = suit; }
     }
     if (bestSuit) {
       const cards = validCards.filter((c) => c.split(' ')[1] === bestSuit);
       if (cards.length > 0) {
-        // Long suits (5+): lead high to drive out opponents' honors
+        // Long suits (5+): lead high to drive out opponents' honours
         // Short suits: lead low (info lead, keeps options open)
         return bestLen >= 5 ? this.highestCard(cards) : this.lowestCard(cards);
       }
     }
     return this.lowestCard(validCards);
+  }
+
+  // --- Positional / memory helpers ---
+
+  /** True if `card` is the highest unplayed card in its suit (a guaranteed winner). */
+  private isBossCard(state: GameState, card: string): boolean {
+    const [value, suit] = card.split(' ');
+    const played = this.getAllPlayedCards(state);
+    const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    const myRank = RANKS.indexOf(value);
+    for (let i = myRank + 1; i < RANKS.length; i++) {
+      if (!played.has(`${RANKS[i]} ${suit}`)) return false; // a higher card is still out
+    }
+    return true;
+  }
+
+  /** All cards played across completed tricks and the current trick. */
+  private getAllPlayedCards(state: GameState): Set<string> {
+    const played = new Set<string>();
+    for (const entry of state.trickLog) played.add(entry.card);
+    for (const c of state.playedCards) { if (c !== null) played.add(c); }
+    return played;
+  }
+
+  /**
+   * Infer void suits per seat from the trick log.
+   * When a player plays off the led suit, they are void in that suit.
+   */
+  private getVoids(state: GameState): Map<number, Set<Suit>> {
+    const voids = new Map<number, Set<Suit>>();
+    for (let i = 0; i < NUM_PLAYERS; i++) voids.set(i, new Set());
+    const byTrick = new Map<number, TrickLogEntry[]>();
+    for (const entry of state.trickLog) {
+      if (!byTrick.has(entry.trickNum)) byTrick.set(entry.trickNum, []);
+      byTrick.get(entry.trickNum)!.push(entry);
+    }
+    for (const entries of byTrick.values()) {
+      const lead = entries.find((e) => e.playOrder === 1);
+      if (!lead) continue;
+      const ledSuit = lead.card.split(' ')[1] as Suit;
+      for (const e of entries) {
+        if (e.card.split(' ')[1] !== ledSuit) voids.get(e.seat)!.add(ledSuit);
+      }
+    }
+    return voids;
+  }
+
+  /** Seats that still have to play AFTER `seat` in the current trick (in play order). */
+  private getPlayersAfter(state: GameState, seat: number): number[] {
+    const myPos = ((seat - state.firstPlayer) + NUM_PLAYERS) % NUM_PLAYERS;
+    const after: number[] = [];
+    for (let i = myPos + 1; i < NUM_PLAYERS; i++) {
+      const s = (state.firstPlayer + i) % NUM_PLAYERS;
+      if (state.playedCards[s] === null) after.push(s);
+    }
+    return after;
+  }
+
+  /** Suits bid by the partner (non-trump). */
+  private getPartnerBidSuits(state: GameState): Set<string> {
+    const suits = new Set<string>();
+    for (const entry of state.bidHistory) {
+      if (entry.bidNum === null || entry.seat !== state.partner) continue;
+      const suit = getBidFromNum(entry.bidNum).split(' ')[1];
+      if (suit !== '🚫') suits.add(suit);
+    }
+    return suits;
+  }
+
+  /** Suits bid by the bidder (non-trump). */
+  private getBidderBidSuits(state: GameState): Set<string> {
+    const suits = new Set<string>();
+    for (const entry of state.bidHistory) {
+      if (entry.bidNum === null || entry.seat !== state.bidder) continue;
+      const suit = getBidFromNum(entry.bidNum).split(' ')[1];
+      if (suit !== '🚫') suits.add(suit);
+    }
+    return suits;
   }
 
   private isOnBidderTeam(state: GameState, seat: number): boolean {
