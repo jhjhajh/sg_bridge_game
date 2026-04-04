@@ -95,6 +95,7 @@ export interface PlayerGameView {
   gameStartAt: number | null;
   isGroupMember?: boolean;
   partnerSeat: number;
+  spectators: { name: string; watchingSeat: number }[];
 }
 
 export interface Env {
