@@ -9,7 +9,9 @@ export type ClientMessage =
   | { type: 'playAgain' }
   | { type: 'watchSeat'; seat: number }
   | { type: 'addBot' }
-  | { type: 'removeBot' };
+  | { type: 'removeBot' }
+  | { type: 'kickPlayer'; seat: number }
+  | { type: 'startGame' };
 
 export type ServerMessage =
   | { type: 'state'; state: PlayerGameView }
@@ -27,4 +29,6 @@ export type ServerMessage =
   | { type: 'trickWon'; winnerSeat: number; sets: number[]; nextTurn: number; winnerName: string; trickCards: (string | null)[] }
   | { type: 'gameOver'; bidderWon: boolean; winnerNames: string[] }
   | { type: 'playerDisconnected'; seat: number; name: string }
-  | { type: 'playerReconnected'; seat: number; name: string };
+  | { type: 'playerReconnected'; seat: number; name: string }
+  | { type: 'kicked'; reason: string }
+  | { type: 'playerKicked'; seat: number; name: string };

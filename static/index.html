@@ -77,7 +77,9 @@
       <button id="btn-share-link" class="btn btn-secondary btn-share">Share Invite Link</button>
       <div id="lobby-players" class="player-list"></div>
       <p id="lobby-status" class="status-text">Waiting for players...</p>
+      <p id="lobby-countdown" class="status-text hidden"></p>
       <button id="lobby-add-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot'})">🤖 Add Bot</button>
+      <button id="lobby-start-btn" class="btn btn-primary hidden" onclick="send({type:'startGame'})">Start Game</button>
     </div>
   </div>
 

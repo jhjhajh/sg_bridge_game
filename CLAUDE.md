@@ -13,8 +13,12 @@ npm install       # Install dependencies
 npm run dev       # Start local dev server (simulates Durable Objects)
 npm run deploy    # Deploy to Cloudflare Workers (requires wrangler login)
 npm run typecheck # TypeScript type check without compiling
-npm run test      # Run vitest (no tests currently exist)
+npm run test      # Run vitest
 ```
+
+## Deployment
+
+**Do not run `npm run deploy` manually.** Merging a PR to `master` triggers automatic Cloudflare deployment. Feature work should be done on a branch and merged via PR.
 
 ## Architecture
 
