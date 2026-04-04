@@ -264,6 +264,7 @@ export class GameRoom extends DurableObject {
         gamesPlayed: p.gamesPlayed,
         isBot: p.isBot,
         isGroupMember: p.isGroupMember,
+        elo: p.elo,
       })),
       hand: mySeat >= 0 && state.hands.length > 0 ? state.hands[mySeat] : null,
       turn: state.turn,
@@ -348,9 +349,11 @@ export class GameRoom extends DurableObject {
     if (userRow && userRow.games_played > 0) {
       player.wins = userRow.wins;
       player.gamesPlayed = userRow.games_played;
+      player.elo = userRow.elo;
     } else {
       player.wins = undefined;
       player.gamesPlayed = undefined;
+      player.elo = undefined;
     }
   }
 

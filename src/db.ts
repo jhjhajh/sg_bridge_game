@@ -7,6 +7,7 @@ export interface UserRow {
   created_at: number;
   wins: number;
   games_played: number;
+  elo: number;
 }
 
 /**
@@ -32,7 +33,7 @@ export async function upsertUser(
  */
 export async function getUser(db: D1Database, telegramId: number): Promise<UserRow | null> {
   const row = await db
-    .prepare('SELECT telegram_id, display_name, created_at, wins, games_played FROM users WHERE telegram_id = ?')
+    .prepare('SELECT telegram_id, display_name, created_at, wins, games_played, elo FROM users WHERE telegram_id = ?')
     .bind(telegramId)
     .first<UserRow>();
   return row ?? null;
