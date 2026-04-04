@@ -1089,6 +1089,7 @@ function renderPlay(s) {
         : '';
       const specs = s.spectators ?? [];
       const eyeIcons = specs
+        .filter(sp => sp.watchingSeat >= 0)
         .map((sp, i) => sp.watchingSeat === seat
           ? `<span class="seat-spectator-eye" style="color:${SPECTATOR_COLORS[i % SPECTATOR_COLORS.length]}">👁</span>`
           : '')
