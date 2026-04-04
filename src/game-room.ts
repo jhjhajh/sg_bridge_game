@@ -858,6 +858,8 @@ export class GameRoom extends DurableObject {
   ): Promise<void> {
     if (state.phase !== 'gameover') return;
 
+    this.shufflePlayerSeats(state);
+
     const otherSeats = [0, 1, 2, 3].filter((s) => s !== state.firstBidder);
     const nextFirstBidder = otherSeats[Math.floor(Math.random() * otherSeats.length)];
 
@@ -1194,7 +1196,17 @@ export class GameRoom extends DurableObject {
     return 'A ♠';
   }
 
+  private shufflePlayerSeats(state: GameState): void {
+    const players = state.players;
+    for (let i = players.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [players[i], players[j]] = [players[j], players[i]];
+    }
+    players.forEach((p, i) => { p.seat = i; });
+  }
+
   private async startGameFromLobby(state: GameState): Promise<void> {
+    this.shufflePlayerSeats(state);
     state.gameStartAt = null;
     state.phase = 'bidding';
     state.hands = generateHands();
