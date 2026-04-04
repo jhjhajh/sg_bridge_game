@@ -390,7 +390,19 @@ function showGameSection(name) {
   document.getElementById('login-section').classList.add('hidden');
   document.getElementById('game-section').classList.remove('hidden');
   const nameInput = document.getElementById('input-name');
-  if (name) nameInput.value = name; // prefer auth name over localStorage
+  const nameLabel = document.querySelector('label[for="input-name"]');
+  if (authDisplayName) {
+    // Telegram user — name is authoritative from Telegram, not editable
+    nameInput.value = authDisplayName;
+    nameInput.readOnly = true;
+    nameInput.classList.add('input-readonly');
+    if (nameLabel) nameLabel.textContent = 'Your Name';
+  } else {
+    nameInput.readOnly = false;
+    nameInput.classList.remove('input-readonly');
+    if (name) nameInput.value = name;
+    if (nameLabel) nameLabel.textContent = 'Your Name';
+  }
   const authStatus = document.getElementById('auth-status');
   if (authDisplayName) {
     authStatus.innerHTML = `Logged in as <strong>${esc(authDisplayName)}</strong> · <a href="#" id="btn-logout">Logout</a>`;

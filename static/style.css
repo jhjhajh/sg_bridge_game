@@ -256,6 +256,17 @@ body.has-spectators .screen {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 .form-group input::placeholder { color: rgba(255,255,255,0.25); }
+.form-group input.input-readonly {
+  color: var(--text-dim);
+  cursor: default;
+  border-color: transparent;
+  background: rgba(255,255,255,0.03);
+}
+.form-group input.input-readonly:focus {
+  border-color: transparent;
+  background: rgba(255,255,255,0.03);
+  box-shadow: none;
+}
 .divider {
   display: flex; align-items: center; gap: 1rem;
   margin: 1.75rem 0; color: var(--text-dimmer);
@@ -266,6 +277,8 @@ body.has-spectators .screen {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
 }
 .home-container .btn { width: 100%; }
+#btn-create { margin-bottom: 0.75rem; }
+#btn-create-group { margin-bottom: 0; }
 
 /* --- Lobby --- */
 .lobby-container {
