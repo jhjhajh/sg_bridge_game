@@ -63,6 +63,7 @@ export interface GameState {
   firstBidder: number;
   groupId: string | null;
   gameStartAt: number | null;
+  partnerRevealed: boolean;
 }
 
 export interface PlayerGameView {
@@ -91,6 +92,7 @@ export interface PlayerGameView {
   groupId: string | null;
   gameStartAt: number | null;
   isGroupMember?: boolean;
+  partnerSeat: number;
 }
 
 export interface Env {

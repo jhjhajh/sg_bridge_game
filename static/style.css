@@ -546,6 +546,18 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.bidder-star {
+  color: #ffd700;
+  font-size: 1.1rem;
+  margin-right: 0.3rem;
+  line-height: 1;
+}
+.partner-star {
+  color: #c0c0c0;
+  font-size: 0.85rem;
+  margin-left: 0.3rem;
+  line-height: 1;
+}
 .seat-sets {
   font-size: 0.9rem;
   font-weight: 800;

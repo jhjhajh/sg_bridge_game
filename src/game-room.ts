@@ -233,6 +233,7 @@ export class GameRoom extends DurableObject {
       firstBidder: 0,
       groupId,
       gameStartAt: null,
+      partnerRevealed: false,
     };
   }
 
@@ -285,6 +286,7 @@ export class GameRoom extends DurableObject {
       groupId: state.groupId,
       isGroupMember: player?.isGroupMember,
       gameStartAt: state.gameStartAt,
+      partnerSeat: state.partnerRevealed ? state.partner : -1,
     };
     return { type: 'state', state: view };
   }
@@ -654,6 +656,10 @@ export class GameRoom extends DurableObject {
 
     state.playedCards[seat] = card;
 
+    if (card === state.partnerCard && !state.partnerRevealed) {
+      state.partnerRevealed = true;
+    }
+
     if (state.firstPlayer === seat) {
       state.currentSuit = suit;
     }
@@ -886,6 +892,7 @@ export class GameRoom extends DurableObject {
     state.playedCards = [null, null, null, null];
     state.partner = -1;
     state.partnerCard = null;
+    state.partnerRevealed = false;
     state.passCount = 0;
     state.lastTrick = null;
     state.trickComplete = false;
