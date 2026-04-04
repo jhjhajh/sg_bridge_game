@@ -1143,7 +1143,6 @@ function renderPlay(s) {
   const positions = ['bottom', 'left', 'top', 'right'];
   const trickPositions = ['bot', 'left', 'top', 'right'];
 
-  const table = $('play-table');
   const activeSeatClasses = ['active-seat-bottom','active-seat-top','active-seat-left','active-seat-right'];
   if (table) activeSeatClasses.forEach((c) => table.classList.remove(c));
 
