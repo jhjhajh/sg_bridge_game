@@ -91,7 +91,7 @@ function renderLeaderboard(data) {
       <span class="lb-stats">${data.me.wins}W / ${data.me.gamesPlayed}G</span>
     </div>`;
   }
-  section.innerHTML = `<div class="lb-card"><div class="lb-header">🏆 Leaderboard</div>${rows}</div>`;
+  section.innerHTML = `<div class="lb-card"><div class="lb-header">🏆 Leaderboard</div>${rows}<div class="lb-footer"><button class="btn-link" onclick="showStats()">📊 Full stats →</button></div></div>`;
 }
 
 async function renderGroupLeaderboard(groupId) {
@@ -1042,9 +1042,13 @@ function renderPartner(s) {
     for (const val of values) {
       for (const suit of CARD_SUITS) {
         const btn = document.createElement('button');
-        btn.className = `partner-card-btn ${isRedSuit(suit) ? 'red' : ''}`;
+        const inHand = s.hand && s.hand[suit] && s.hand[suit].includes(val);
+        btn.className = `partner-card-btn ${isRedSuit(suit) ? 'red' : ''}${inHand ? ' disabled' : ''}`;
         btn.textContent = `${val} ${suit}`;
-        btn.addEventListener('click', () => send({ type: 'selectPartner', card: `${val} ${suit}` }));
+        btn.disabled = inHand;
+        if (!inHand) {
+          btn.addEventListener('click', () => send({ type: 'selectPartner', card: `${val} ${suit}` }));
+        }
         grid.appendChild(btn);
       }
     }

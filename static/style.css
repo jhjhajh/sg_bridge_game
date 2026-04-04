@@ -1126,7 +1126,7 @@ body.has-spectators .screen {
 .auth-status {
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.6);
-  margin-bottom: 1rem;
+  margin-top: 1.25rem;
   text-align: center;
 }
 
@@ -1150,6 +1150,13 @@ body.has-spectators .screen {
   border-radius: 12px;
   padding: 1rem;
   margin-bottom: 1.25rem;
+}
+
+.lb-footer {
+  text-align: right;
+  margin-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 0.5rem;
 }
 
 .lb-header {
@@ -1301,10 +1308,6 @@ body.has-spectators .screen {
 }
 
 /* --- Stats page --- */
-.stats-link-bar {
-  text-align: right;
-  margin-top: 0.25rem;
-}
 .btn-link {
   background: none;
   border: none;
