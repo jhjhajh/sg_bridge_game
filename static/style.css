@@ -370,12 +370,13 @@ html, body {
 }
 .bid-hist-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   font-size: 0.8rem;
   padding: 2px 4px;
   border-radius: 4px;
 }
 .bid-hist-name { color: var(--text-dim); }
+.bid-hist-dash { color: var(--text-dimmer); }
 .bid-hist-val { color: var(--accent-light); font-weight: 600; }
 .bid-hist-pass .bid-hist-val { color: var(--text-dimmer); font-weight: 400; }
 .bid-grid {
