@@ -289,6 +289,7 @@ export class GameRoom extends DurableObject {
       isGroupMember: player?.isGroupMember,
       gameStartAt: state.gameStartAt,
       partnerSeat: state.partnerRevealed ? state.partner : -1,
+      spectators: state.spectators.map((sp) => ({ name: sp.name, watchingSeat: sp.watchingSeat })),
     };
     return { type: 'state', state: view };
   }

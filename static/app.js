@@ -892,6 +892,7 @@ function renderState() {
 
 // --- Lobby ---
 function renderLobby(s) {
+  renderSpectatorBar(s);
   $('lobby-room-code').textContent = s.roomCode;
   const list = $('lobby-players');
   list.innerHTML = '';
@@ -954,9 +955,30 @@ function renderLobby(s) {
   }
 }
 
+const SPECTATOR_COLORS = ['#06b6d4','#f97316','#a3e635','#f43f5e','#a855f7','#facc15'];
+
+function renderSpectatorBar(s) {
+  const bar = $('spectator-bar');
+  if (!bar) return;
+  const specs = s.spectators ?? [];
+  if (specs.length === 0) {
+    bar.classList.add('hidden');
+    bar.innerHTML = '';
+    document.body.classList.remove('has-spectators');
+    return;
+  }
+  bar.classList.remove('hidden');
+  document.body.classList.add('has-spectators');
+  bar.innerHTML = specs.map((sp, i) => {
+    const color = SPECTATOR_COLORS[i % SPECTATOR_COLORS.length];
+    return `<span class="spectator-tag" style="color:${color}">👁 ${esc(sp.name)}</span>`;
+  }).join('');
+}
+
 // --- Bidding ---
 function renderBidding(s) {
   renderPlayerStatusBar($('bidding-players'), s.players);
+  renderSpectatorBar(s);
   const isMyTurn = s.turn === s.mySeat;
   $('bid-status').textContent = s.isSpectator
     ? `👁 Watching: ${s.players[s.watchingSeat]?.name || '?'}`
@@ -1003,6 +1025,7 @@ function renderBidding(s) {
 // --- Partner selection ---
 function renderPartner(s) {
   renderPlayerStatusBar($('partner-players'), s.players);
+  renderSpectatorBar(s);
   const isBidder = s.mySeat === s.bidder;
   $('partner-title').textContent = isBidder ? 'Select Partner Card' : 'Partner Selection';
   $('partner-status').textContent = isBidder
@@ -1030,6 +1053,7 @@ function renderPartner(s) {
 
 // --- Play ---
 function renderPlay(s) {
+  renderSpectatorBar(s);
   // Info bar
   if (s.bid >= 0 && s.bidder >= 0) {
     $('play-bid-info').textContent = `Bid: ${s.players[s.bidder].name} - ${getBidFromNum(s.bid)}`;
@@ -1064,8 +1088,15 @@ function renderPlay(s) {
       const partnerStar = (s.partnerSeat !== -1 && seat === s.partnerSeat)
         ? '<span class="partner-star">★</span>'
         : '';
+      const specs = s.spectators ?? [];
+      const eyeIcons = specs
+        .filter(sp => sp.watchingSeat >= 0)
+        .map((sp, i) => sp.watchingSeat === seat
+          ? `<span class="seat-spectator-eye" style="color:${SPECTATOR_COLORS[i % SPECTATOR_COLORS.length]}">👁</span>`
+          : '')
+        .join('');
       const sets = s.sets?.[seat] ?? 0;
-      label.innerHTML = `<span class="seat-name-row">${bidderStar}${partnerStar}${statusDot(player.connected)}<span class="seat-name">${esc(player.name)}</span></span><span class="seat-sets">${sets}</span>`;
+      label.innerHTML = `<span class="seat-name-row">${bidderStar}${partnerStar}${statusDot(player.connected)}<span class="seat-name">${esc(player.name)}</span>${eyeIcons}</span><span class="seat-sets">${sets}</span>`;
       label.className = 'seat-label';
       if (seat === s.turn) {
         label.classList.add('active-turn');
@@ -1165,6 +1196,7 @@ function sendWatchSeat(seat) {
 // --- Game Over ---
 function renderGameOver(s) {
   renderPlayerStatusBar($('gameover-players'), s.players);
+  renderSpectatorBar(s);
   const title = $('gameover-title');
   const detail = $('gameover-detail');
   const scores = $('gameover-scores');
