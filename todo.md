@@ -1,10 +1,5 @@
 # Next tasks
 
-## Stats / Elo
-
-- [ ] **Exclude all-bot practice games**  
-  When a game has 3 bots (only one human), do not record any stats for it—no Elo, wins, games played, pairs, leaderboards, or other aggregates. Treat it as practice / unrated.
-
 ## Telegram group integration
 
 - [ ] **Lobby: resend invite to the Telegram group**  

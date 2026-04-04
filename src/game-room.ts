@@ -737,6 +737,8 @@ export class GameRoom extends DurableObject {
         trickCards: [...state.lastTrick.cards],
       });
 
+      const isPracticeGame = state.players.filter((p) => !p.isBot).length < 2;
+
       if (bidderSets >= state.setsNeeded) {
         state.phase = 'gameover';
         state.readySeats = [];
@@ -750,7 +752,7 @@ export class GameRoom extends DurableObject {
           bidderWon: true,
           winnerNames,
         });
-        await recordGameResult(
+        if (!isPracticeGame) await recordGameResult(
           (this.env as Env).DB,
           state.players,
           getWinnerSeats(bidder, partner, true),
@@ -763,7 +765,7 @@ export class GameRoom extends DurableObject {
             state.groupId,
             `🏆 ${winnerNames.join(' & ')} won!\nBid ${bidStr}, made ${bidderSets}/${state.setsNeeded} tricks`,
           ).catch(() => {});
-          await recordGroupResult(
+          if (!isPracticeGame) await recordGroupResult(
             (this.env as Env).DB,
             state.groupId,
             state.players,
@@ -771,26 +773,28 @@ export class GameRoom extends DurableObject {
           );
         }
 
-        await recordGameStats(
-          (this.env as Env).DB,
-          state.gameId,
-          state.groupId,
-          state.players,
-          bidder,
-          partner,
-          state.bid,
-          state.sets,
-          getWinnerSeats(bidder, partner, true),
-        );
+        if (!isPracticeGame) {
+          await recordGameStats(
+            (this.env as Env).DB,
+            state.gameId,
+            state.groupId,
+            state.players,
+            bidder,
+            partner,
+            state.bid,
+            state.sets,
+            getWinnerSeats(bidder, partner, true),
+          );
 
-        await recordEloUpdate(
-          (this.env as Env).DB,
-          state.gameId,
-          state.players,
-          bidder,
-          partner,
-          getWinnerSeats(bidder, partner, true),
-        );
+          await recordEloUpdate(
+            (this.env as Env).DB,
+            state.gameId,
+            state.players,
+            bidder,
+            partner,
+            getWinnerSeats(bidder, partner, true),
+          );
+        }
 
         this.ctx.waitUntil(
           Promise.all([
@@ -828,7 +832,7 @@ export class GameRoom extends DurableObject {
           bidderWon: false,
           winnerNames,
         });
-        await recordGameResult(
+        if (!isPracticeGame) await recordGameResult(
           (this.env as Env).DB,
           state.players,
           getWinnerSeats(bidder, partner, false),
@@ -841,7 +845,7 @@ export class GameRoom extends DurableObject {
             state.groupId,
             `🛡️ ${winnerNames.join(' & ')} defended!\n${state.players[bidder].name}'s ${bidStr} bid failed`,
           ).catch(() => {});
-          await recordGroupResult(
+          if (!isPracticeGame) await recordGroupResult(
             (this.env as Env).DB,
             state.groupId,
             state.players,
@@ -849,26 +853,28 @@ export class GameRoom extends DurableObject {
           );
         }
 
-        await recordGameStats(
-          (this.env as Env).DB,
-          state.gameId,
-          state.groupId,
-          state.players,
-          bidder,
-          partner,
-          state.bid,
-          state.sets,
-          getWinnerSeats(bidder, partner, false),
-        );
+        if (!isPracticeGame) {
+          await recordGameStats(
+            (this.env as Env).DB,
+            state.gameId,
+            state.groupId,
+            state.players,
+            bidder,
+            partner,
+            state.bid,
+            state.sets,
+            getWinnerSeats(bidder, partner, false),
+          );
 
-        await recordEloUpdate(
-          (this.env as Env).DB,
-          state.gameId,
-          state.players,
-          bidder,
-          partner,
-          getWinnerSeats(bidder, partner, false),
-        );
+          await recordEloUpdate(
+            (this.env as Env).DB,
+            state.gameId,
+            state.players,
+            bidder,
+            partner,
+            getWinnerSeats(bidder, partner, false),
+          );
+        }
 
         this.ctx.waitUntil(
           Promise.all([
