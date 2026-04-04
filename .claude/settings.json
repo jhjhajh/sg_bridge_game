@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from game_manager import RoomManager, Player; rm = RoomManager\\(\\); room = rm.create_room\\(\\); p1 = Player\\('1','A'\\); p2 = Player\\('2','B'\\); p3 = Player\\('3','C'\\); p4 = Player\\('4','D'\\); print\\(room.add_player\\(p1\\)\\); print\\(room.add_player\\(p2\\)\\); print\\(room.add_player\\(p3\\)\\); print\\(room.add_player\\(p4\\)\\); print\\('Mode:', room.mode\\); print\\('Hands dealt:', len\\(room.hands\\)\\); s = room.get_state_for_player\\('1'\\); print\\('Player 1 hand:', s['hand']\\); print\\('Bid options count:', len\\(s['bid_options']\\) if s['bid_options'] else 0\\)\")",
+      "Bash(docker compose:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl:*)",
+      "Bash(grep -E \"\\\\.\\(py|js|yml|yaml|json|txt|md|dockerfile|sh\\)$\")",
+      "WebSearch",
+      "Bash(npm run:*)",
+      "Bash(npx wrangler:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx -y typescript --noEmit)",
+      "Bash(npm install:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npm test:*)",
+      "Bash(git checkout:*)",
+      "Bash(node:*)",
+      "Bash(gh pr create --title 'Add Telegram authentication with D1 user profiles' --body ':*)",
+      "Bash(bash:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm list:*)",
+      "Bash(gh pr create --title 'Telegram auth, leaderboard, bid history, card font' --body ':*)",
+      "Bash(git pull:*)",
+      "Bash(gh pr create --title 'Add basic bots' --body ':*)",
+      "Bash(where gh:*)",
+      "Bash(grep -n \"bot-icon\\\\|\\\\\\\\\\\\\\\\span\" G:/sg_bridge_bot/static/app.js)",
+      "Bash(C:/Users/vocs/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/start-server.sh:*)",
+      "Bash(cat \"G:/sg_bridge_bot/.superpowers/brainstorm\"/*/state/server-info)",
+      "Bash(wrangler whoami:*)",
+      "Bash(python3 -c 'print\\(0//5+1\\)')",
+      "Bash(python3 -c 'print\\(0%5\\)')",
+      "Bash(echo \"bid 0: level=$\\(python3 -c 'print\\(0//5+1\\)'\\), suit_idx=$\\(python3 -c 'print\\(0%5\\)'\\)\")",
+      "Bash(python3 -c 'print\\(12//5+1\\)')",
+      "Bash(python3 -c 'print\\(12%5\\)')",
+      "Bash(git:*)"
+    ]
+  }
+}
