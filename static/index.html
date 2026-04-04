@@ -80,6 +80,7 @@
         <button id="btn-send-tg" class="btn btn-secondary hidden"></button>
       </div>
       <div id="lobby-players" class="player-list"></div>
+      <p id="lobby-practice-notice" class="practice-notice hidden">🎮 Practice · unrated</p>
       <button id="lobby-add-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot'})">🤖 Add Bot</button>
       <p id="lobby-status" class="status-text">Waiting for players...</p>
       <p id="lobby-countdown" class="status-text hidden"></p>
@@ -91,7 +92,7 @@
   <div id="screen-bidding" class="screen hidden">
     <div class="bidding-container">
       <div class="bid-info">
-        <h2>Bidding</h2>
+        <h2>Bidding <span id="bid-practice-badge" class="practice-badge hidden">Practice</span></h2>
         <div id="bidding-players" class="player-status-bar"></div>
         <p id="bid-status"></p>
         <p id="bid-current"></p>
@@ -109,7 +110,7 @@
   <!-- Partner selection screen -->
   <div id="screen-partner" class="screen hidden">
     <div class="partner-container">
-      <h2 id="partner-title">Select Partner Card</h2>
+      <h2 id="partner-title">Select Partner Card <span id="partner-practice-badge" class="practice-badge hidden">Practice</span></h2>
       <div id="partner-players" class="player-status-bar"></div>
       <p id="partner-status"></p>
       <div id="partner-grid" class="partner-grid"></div>
@@ -171,6 +172,7 @@
   <div id="screen-gameover" class="screen hidden">
     <div class="gameover-container" id="gameover-container">
       <h2 id="gameover-title"></h2>
+      <p id="gameover-practice-notice" class="practice-notice hidden">🎮 Practice · unrated</p>
       <div id="gameover-players" class="player-status-bar"></div>
       <p id="gameover-detail"></p>
       <div id="gameover-scores" class="scores"></div>

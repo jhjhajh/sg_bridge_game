@@ -855,6 +855,13 @@ function showLastTrick() {
 }
 
 // --- Render based on full state ---
+function togglePractice(id, isPractice) {
+  const el = $(id);
+  if (!el) return;
+  if (isPractice) el.classList.remove('hidden');
+  else el.classList.add('hidden');
+}
+
 function statusDot(connected) {
   return `<span class="status-dot ${connected ? 'online' : 'offline'}"></span>`;
 }
@@ -979,6 +986,8 @@ function renderLobby(s) {
     }
   }
 
+  togglePractice('lobby-practice-notice', s.isPractice);
+
   const sendTgBtn = $('btn-send-tg');
   if (sendTgBtn) {
     if (s.groupId && s.groupName) {
@@ -1057,6 +1066,7 @@ function renderBidding(s) {
 
   $('btn-pass').disabled = s.isSpectator || !isMyTurn;
   renderHand($('bidding-hand'), s.hand, null, null);
+  togglePractice('bid-practice-badge', s.isPractice);
 
   const hcpBadge = $('bidding-hcp');
   if (hcpBadge && s.hand && !s.isSpectator) {
@@ -1100,6 +1110,7 @@ function renderPartner(s) {
   }
 
   renderHand($('partner-hand'), s.hand, null, null);
+  togglePractice('partner-practice-badge', s.isPractice);
 }
 
 // --- Play ---
@@ -1115,6 +1126,11 @@ function renderPlay(s) {
   if (practiceBadge) {
     if (s.isPractice) practiceBadge.classList.remove('hidden');
     else practiceBadge.classList.add('hidden');
+  }
+  const table = $('play-table');
+  if (table) {
+    if (s.isPractice) table.classList.add('practice');
+    else table.classList.remove('practice');
   }
 
   // Seat mapping: rotate so mySeat is always at bottom
@@ -1354,6 +1370,8 @@ function renderGameOver(s) {
     title.textContent = 'Game Over';
     detail.innerHTML = `Bid: ${esc(bidderName)} — ${esc(bidStr)}<br><span style="font-size:0.82em">(needed ${s.setsNeeded} sets)</span>`;
   }
+
+  togglePractice('gameover-practice-notice', s.isPractice);
 
   // Determine which players are on the bidder's team
   let bidderTeamNames = null;
