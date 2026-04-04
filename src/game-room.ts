@@ -858,9 +858,17 @@ export class GameRoom extends DurableObject {
   ): Promise<void> {
     if (state.phase !== 'gameover') return;
 
+    // Capture who was first bidder before seats are reshuffled
+    const prevFirstBidderPlayer = state.players.find((p) => p.seat === state.firstBidder);
+
     this.shufflePlayerSeats(state);
 
-    const otherSeats = [0, 1, 2, 3].filter((s) => s !== state.firstBidder);
+    // Find their new seat after shuffle (so the same player doesn't go first twice)
+    const prevFirstBidderNewSeat = prevFirstBidderPlayer
+      ? (state.players.find((p) => p.id === prevFirstBidderPlayer.id)?.seat ?? -1)
+      : -1;
+
+    const otherSeats = [0, 1, 2, 3].filter((s) => s !== prevFirstBidderNewSeat);
     const nextFirstBidder = otherSeats[Math.floor(Math.random() * otherSeats.length)];
 
     state.phase = 'bidding';
