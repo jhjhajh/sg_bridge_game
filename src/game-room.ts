@@ -1059,7 +1059,7 @@ export class GameRoom extends DurableObject {
 
     if (useTeamLogic) {
       return onBidderTeam
-        ? this.getBotCardAsBidderTeam(state, validCards)
+        ? this.getBotCardAsBidderTeam(state, seat, validCards)
         : this.getBotCardAsOpposition(state, seat, validCards);
     }
 
@@ -1072,19 +1072,19 @@ export class GameRoom extends DurableObject {
     return winningCards.length > 0 ? this.lowestCard(winningCards) : this.lowestCard(validCards);
   }
 
-  private getBotCardAsBidderTeam(state: GameState, validCards: string[]): string {
+  private getBotCardAsBidderTeam(state: GameState, seat: number, validCards: string[]): string {
     const currentWinnerSeat = this.getCurrentTrickWinnerSeat(state);
     if (currentWinnerSeat !== null && this.isOnBidderTeam(state, currentWinnerSeat)) {
-      // Teammate winning — dump lowest, don't steal
-      return this.lowestCard(validCards);
+      // Teammate winning — dump from shortest side suit, don't steal
+      return this.smartDump(state, seat, validCards);
     }
-    // Opposition winning — play lowest card that takes the trick; else dump lowest
+    // Opposition winning — play lowest card that takes the trick; else dump smartly
     const orderedSoFar = this.getOrderedCardsPlayed(state);
     const winning = validCards.filter((card) => {
       const test = [...orderedSoFar, card];
       return compareCards(test, state.currentSuit!, state.trumpSuit) === test.length - 1;
     });
-    return winning.length > 0 ? this.lowestCard(winning) : this.lowestCard(validCards);
+    return winning.length > 0 ? this.lowestCard(winning) : this.smartDump(state, seat, validCards);
   }
 
   private getBotCardAsOpposition(state: GameState, seat: number, validCards: string[]): string {
@@ -1102,9 +1102,8 @@ export class GameRoom extends DurableObject {
     });
     if (winning.length > 0) return this.lowestCard(winning);
 
-    // Can't win — dump lowest non-trump to conserve trump for later
-    const nonTrump = validCards.filter((c) => c.split(' ')[1] !== state.trumpSuit);
-    return this.lowestCard(nonTrump.length > 0 ? nonTrump : validCards);
+    // Can't win — dump from shortest non-trump side suit to conserve trump and long suits
+    return this.smartDump(state, seat, validCards);
   }
 
   private getBotLeadCard(
@@ -1125,11 +1124,11 @@ export class GameRoom extends DurableObject {
     }
 
     if (onBidderTeam) {
-      // Prefer leading a suit the partner bid (they likely have more)
+      // Prefer leading a suit the partner bid (they likely have more) — lead high to establish
       const partnerSuitCards = validCards.filter(
         (c) => partnerBidSuits.has(c.split(' ')[1]) && c.split(' ')[1] !== state.trumpSuit,
       );
-      if (partnerSuitCards.length > 0) return this.lowestCard(partnerSuitCards);
+      if (partnerSuitCards.length > 0) return this.highestCard(partnerSuitCards);
       // Else lead longest non-trump suit
       return this.leadLongestNonTrump(state, seat, validCards);
     } else {
@@ -1154,7 +1153,11 @@ export class GameRoom extends DurableObject {
     }
     if (bestSuit) {
       const cards = validCards.filter((c) => c.split(' ')[1] === bestSuit);
-      if (cards.length > 0) return this.lowestCard(cards);
+      if (cards.length > 0) {
+        // Long suits (5+): lead high to drive out opponents' honors
+        // Short suits: lead low (info lead, keeps options open)
+        return bestLen >= 5 ? this.highestCard(cards) : this.lowestCard(cards);
+      }
     }
     return this.lowestCard(validCards);
   }
@@ -1201,6 +1204,33 @@ export class GameRoom extends DurableObject {
     });
   }
 
+  private highestCard(cards: string[]): string {
+    return cards.reduce((best, card) => {
+      const bestNum = getNumFromValue(best.split(' ')[0]);
+      const cardNum = getNumFromValue(card.split(' ')[0]);
+      return cardNum > bestNum ? card : best;
+    });
+  }
+
+  /** Discard the lowest card from the shortest non-trump side suit. */
+  private smartDump(state: GameState, seat: number, validCards: string[]): string {
+    const hand = state.hands[seat];
+    const nonTrump = validCards.filter((c) => c.split(' ')[1] !== state.trumpSuit);
+    const pool = nonTrump.length > 0 ? nonTrump : validCards;
+    // Find the suit with fewest cards (to burn a suit we can't establish)
+    let shortestSuit: string | null = null;
+    let shortestLen = Infinity;
+    for (const c of pool) {
+      const suit = c.split(' ')[1] as import('./types').Suit;
+      if (hand[suit].length < shortestLen) {
+        shortestLen = hand[suit].length;
+        shortestSuit = suit;
+      }
+    }
+    const suitCards = shortestSuit ? pool.filter((c) => c.split(' ')[1] === shortestSuit) : pool;
+    return this.lowestCard(suitCards.length > 0 ? suitCards : pool);
+  }
+
   private getBotHandPoints(hand: import('./types').Hand): number {
     let points = 0;
     for (const suit of CARD_SUITS) {
@@ -1220,12 +1250,22 @@ export class GameRoom extends DurableObject {
     const hand = state.hands[seat];
     const points = this.getBotHandPoints(hand);
 
-    // Determine desired bid level based on hand strength
+    // Determine desired bid level based on hand strength.
+    // Modest hands (9-11) enter the auction at level 1 with moderate probability
+    // to compete more often. Level 1 is preferred up to 15 pts (first-level bias).
     let desiredLevel: number;
-    if (points < 12) return null;
-    else if (points < 15) desiredLevel = 1;
-    else if (points < 18) desiredLevel = 2;
-    else desiredLevel = 3;
+    if (points < 9) return null;
+    if (points < 12) {
+      // Compete with ~60% probability on modest hands
+      if (Math.random() > 0.6) return null;
+      desiredLevel = 1;
+    } else if (points < 16) {
+      desiredLevel = 1; // first-level bias — widened from 12-14 to 12-15
+    } else if (points < 19) {
+      desiredLevel = 2;
+    } else {
+      desiredLevel = 3;
+    }
 
     // Find best trump suit: longest suit, tiebreak by HCP in that suit
     let bestSuitIdx = 4; // default: no-trump (index 4 in BID_SUITS)
