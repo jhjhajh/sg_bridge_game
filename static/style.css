@@ -681,34 +681,34 @@ html, body {
 .card-mini.red { color: var(--red-suit); }
 .card-mini.black { color: #2d3436; }
 
-/* Trump card fire aura (trick area + last-trick popup) */
+/* Trump card red glow aura (trick area + last-trick popup) */
 @keyframes trump-fire-glow {
   0%, 100% {
     box-shadow:
-      0 0 4px 1px rgba(255, 200, 80, 0.5),
-      0 0 12px 3px rgba(255, 100, 20, 0.45),
-      0 0 22px 6px rgba(255, 60, 0, 0.25);
-    filter: drop-shadow(0 0 3px rgba(255, 120, 0, 0.7));
+      0 0 4px 1px rgba(255, 60, 60, 0.55),
+      0 0 12px 3px rgba(220, 20, 20, 0.5),
+      0 0 22px 6px rgba(180, 0, 0, 0.3);
+    filter: drop-shadow(0 0 3px rgba(210, 0, 0, 0.75));
   }
   50% {
     box-shadow:
-      0 0 6px 2px rgba(255, 230, 120, 0.65),
-      0 0 16px 5px rgba(255, 140, 40, 0.55),
-      0 0 28px 9px rgba(255, 80, 0, 0.35);
-    filter: drop-shadow(0 0 5px rgba(255, 160, 40, 0.9));
+      0 0 6px 2px rgba(255, 90, 90, 0.7),
+      0 0 16px 5px rgba(230, 30, 30, 0.6),
+      0 0 28px 9px rgba(200, 0, 0, 0.4);
+    filter: drop-shadow(0 0 5px rgba(230, 0, 0, 0.95));
   }
 }
 .card-trump-fire {
   position: relative;
   z-index: 2;
   animation: trump-fire-glow 0.75s ease-in-out infinite;
-  border-color: rgba(255, 150, 50, 0.65) !important;
+  border-color: rgba(220, 50, 50, 0.7) !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .card-trump-fire {
     animation: none;
-    box-shadow: 0 0 10px 3px rgba(255, 120, 40, 0.5);
-    filter: drop-shadow(0 0 4px rgba(255, 100, 0, 0.6));
+    box-shadow: 0 0 10px 3px rgba(200, 30, 30, 0.55);
+    filter: drop-shadow(0 0 4px rgba(190, 0, 0, 0.65));
   }
 }
 
