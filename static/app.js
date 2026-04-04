@@ -899,8 +899,9 @@ function renderLobby(s) {
     const item = document.createElement('div');
     item.className = 'player-item';
     const botIcon = p.isBot ? '<span class="bot-icon">🤖</span>' : '';
+    const eloStr = (!p.isBot && p.elo) ? `ELO ${p.elo} · ` : '';
     const statsHtml = (!p.isBot && p.gamesPlayed)
-      ? `<span class="lobby-stats">${p.wins}W / ${p.gamesPlayed}G</span>`
+      ? `<span class="lobby-stats">${eloStr}${p.wins}W / ${p.gamesPlayed}G</span>`
       : '';
     const notRankedBadge = (s.groupId && p.isGroupMember === false && !p.isBot)
       ? '<span class="not-ranked-badge">⚠️ not ranked</span>'
