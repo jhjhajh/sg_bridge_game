@@ -75,8 +75,10 @@
         <span class="label">Room Code</span>
         <span id="lobby-room-code" class="code">----</span>
       </div>
-      <button id="btn-share-link" class="btn btn-secondary btn-share">Share Invite Link</button>
-      <button id="btn-send-tg" class="btn btn-secondary btn-share hidden">📨 Send to group</button>
+      <div class="lobby-invite-row">
+        <button id="btn-share-link" class="btn btn-secondary">Share Invite Link</button>
+        <button id="btn-send-tg" class="btn btn-secondary hidden"></button>
+      </div>
       <div id="lobby-players" class="player-list"></div>
       <button id="lobby-add-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot'})">🤖 Add Bot</button>
       <p id="lobby-status" class="status-text">Waiting for players...</p>

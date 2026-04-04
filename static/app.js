@@ -971,7 +971,7 @@ function renderLobby(s) {
   const sendTgBtn = $('btn-send-tg');
   if (sendTgBtn) {
     if (s.groupId && s.groupName) {
-      sendTgBtn.textContent = `📨 Send to ${s.groupName}`;
+      sendTgBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:5px"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>${esc(s.groupName)}`;
       sendTgBtn.classList.remove('hidden');
       // Remember this group for the home screen "create for group" button
       localStorage.setItem('lastGroup', JSON.stringify({ groupId: s.groupId, groupName: s.groupName }));
@@ -1526,7 +1526,7 @@ $('btn-share-link').addEventListener('click', () => {
 $('btn-send-tg').addEventListener('click', async () => {
   if (!roomCode) return;
   const btn = $('btn-send-tg');
-  const originalText = btn.textContent;
+  const originalHTML = btn.innerHTML;
   btn.disabled = true;
   try {
     await fetch('/api/send-group-invite', {
@@ -1535,7 +1535,7 @@ $('btn-send-tg').addEventListener('click', async () => {
       body: JSON.stringify({ room: roomCode }),
     });
     btn.textContent = 'Sent!';
-    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+    setTimeout(() => { btn.innerHTML = originalHTML; btn.disabled = false; }, 2000);
   } catch {
     btn.disabled = false;
   }
