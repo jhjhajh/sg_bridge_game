@@ -594,7 +594,7 @@ html, body {
 .trick-card-left  { grid-area: left; }
 .trick-card-right { grid-area: right; }
 .trick-card-bot   { grid-area: bot; }
-.trick-card .card { width: clamp(48px, 12vw, 72px); font-size: clamp(1.44rem, 6vw, 2.04rem); }
+.trick-card .card-mini { width: clamp(34px, 7.2vw, 50px); font-size: clamp(1.2rem, 4.32vw, 1.56rem); }
 
 .trick-area.trick-complete .trick-card {
   opacity: 0.4;
