@@ -1307,6 +1307,7 @@ function renderGameoverHands(s) {
         const parsed = parseLoggedCard(e.card);
         if (!parsed) continue;
         const el = createCardEl(parsed.value, parsed.suit, { mini: true });
+        el.classList.add(`po-${e.playOrder}`);
         cards.appendChild(el);
       }
       // Unplayed cards (game ended early) appended faded at the right

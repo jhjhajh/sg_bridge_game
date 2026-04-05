@@ -997,6 +997,10 @@ body.has-spectators .screen {
 .gameover-hand-cards .card-mini.played {
   opacity: 0.3;
 }
+.gameover-hand-cards .card-mini.po-1 { border-top: 3px solid #4ade80; }
+.gameover-hand-cards .card-mini.po-2 { border-top: 3px solid #facc15; }
+.gameover-hand-cards .card-mini.po-3 { border-top: 3px solid #fb923c; }
+.gameover-hand-cards .card-mini.po-4 { border-top: 3px solid #f87171; }
 .gameover-ready-list {
   display: flex;
   flex-wrap: wrap;
