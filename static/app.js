@@ -1279,16 +1279,6 @@ function renderGameoverHands(s) {
   if (!s.allInitialHands || !s.allFinalHands) return;
 
   const log = s.trickLog;
-  const usePlayOrder =
-    log &&
-    log.length > 0 &&
-    log.length === s.allInitialHands.reduce((n, h) => {
-      if (!h) return n;
-      return (
-        n +
-        CARD_SUITS.reduce((m, suit) => m + (h[suit] ? h[suit].length : 0), 0)
-      );
-    }, 0);
 
   // Render one row per player in seat order (0–3)
   const sorted = [...s.players].sort((a, b) => a.seat - b.seat);
@@ -1308,7 +1298,8 @@ function renderGameoverHands(s) {
     const cards = document.createElement('div');
     cards.className = 'gameover-hand-cards';
 
-    if (usePlayOrder) {
+    if (log && log.length > 0) {
+      // Played cards in trick sequence, left to right
       const seatPlays = log
         .filter((e) => e.seat === p.seat)
         .sort((a, b) => a.trickNum - b.trickNum || a.playOrder - b.playOrder);
@@ -1316,10 +1307,20 @@ function renderGameoverHands(s) {
         const parsed = parseLoggedCard(e.card);
         if (!parsed) continue;
         const el = createCardEl(parsed.value, parsed.suit, { mini: true });
-        el.classList.add('played');
         cards.appendChild(el);
       }
+      // Unplayed cards (game ended early) appended faded at the right
+      if (finalHand) {
+        for (const suit of CARD_SUITS) {
+          for (const value of (finalHand[suit] || [])) {
+            const el = createCardEl(value, suit, { mini: true });
+            el.classList.add('played');
+            cards.appendChild(el);
+          }
+        }
+      }
     } else {
+      // Fallback: suit order, played cards faded
       for (const suit of CARD_SUITS) {
         const initialValues = initial[suit] || [];
         const finalSet = new Set(finalHand ? (finalHand[suit] || []) : []);
