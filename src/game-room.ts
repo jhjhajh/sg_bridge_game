@@ -1529,6 +1529,26 @@ export class GameRoom extends DurableObject {
     else if (S < 24) myMaxLevel = 2;
     else myMaxLevel = 3;
 
+    // Competitive suit adjustment: modify willingness to bid (myMaxLevel ± 1) based on how
+    // our hand relates to the current bid suit. Only applies when there is a bid to overcall.
+    //   Current bid == our best suit → opponent bid our strain; reduce aggression (-1 level)
+    //   Current bid is our weak suit → fight harder for a better contract (+1 level per tier)
+    if (state.bid >= 0) {
+      const currentBidSuitIdx = state.bid % 5;
+      if (currentBidSuitIdx < 4) { // NT bids have no suit to compare
+        const currentBidSuit = CARD_SUITS[currentBidSuitIdx];
+        const holding = hand[currentBidSuit].length;
+        if (currentBidSuitIdx === bestSuitIdx) {
+          myMaxLevel = Math.max(0, myMaxLevel - 1); // opponent bid our best strain — trap-pass
+        } else if (holding === 0) {
+          myMaxLevel = Math.min(3, myMaxLevel + 2); // void in their suit — fight very hard
+        } else if (holding <= 3) {
+          myMaxLevel = Math.min(3, myMaxLevel + 1); // short holding — willing to stretch one level
+        }
+        // 4+ cards and not our best suit → neutral (no adjustment)
+      }
+    }
+
     // Competitive step-up: find minimum level needed to overcall
     let proposedLevel: number;
     if (state.bid < 0) {
