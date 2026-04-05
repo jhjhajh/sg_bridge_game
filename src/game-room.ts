@@ -1796,12 +1796,18 @@ export class GameRoom extends DurableObject {
     return bidderTeamAfter ? this.highestCard(winning) : this.lowestCard(winning);
   }
 
-  /** Advanced smartDump: same as base but partner never discards the called card unless last card. */
+  /** Advanced smartDump: never discard called card (partner), never discard honors unless forced. */
   private smartDumpAdvanced(state: GameState, seat: number, validCards: string[]): string {
     let pool = validCards;
-    if (seat === state.partner && state.partnerCard && validCards.length > 1) {
-      const filtered = validCards.filter((c) => c !== state.partnerCard);
+    // Partner: never dump the called card unless it is the only card left
+    if (seat === state.partner && state.partnerCard && pool.length > 1) {
+      const filtered = pool.filter((c) => c !== state.partnerCard);
       if (filtered.length > 0) pool = filtered;
+    }
+    // Never dump an honor (A, K, Q, J) if non-honor alternatives exist
+    if (pool.length > 1) {
+      const nonHonors = pool.filter((c) => !['A', 'K', 'Q', 'J'].includes(c.split(' ')[0]));
+      if (nonHonors.length > 0) pool = nonHonors;
     }
     return this.smartDump(state, seat, pool);
   }
