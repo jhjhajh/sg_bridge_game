@@ -1326,7 +1326,7 @@ function renderGameoverHands(s) {
     const pts = calcHandPoints(initial);
     const ptsSpan = document.createElement('span');
     ptsSpan.className = 'hand-pts';
-    ptsSpan.textContent = `${pts}pts`;
+    ptsSpan.textContent = `(${pts} points)`;
     label.appendChild(ptsSpan);
     if (p.seat === s.bidder) {
       const role = document.createElement('span');
