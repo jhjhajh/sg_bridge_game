@@ -450,6 +450,23 @@ function showScreen(id) {
 }
 
 // --- Card rendering ---
+/** HCP + distribution bonus (+1 per card beyond 4 in any suit). Mirrors bridge.ts getPoints. */
+function calcHandPoints(hand) {
+  if (!hand) return 0;
+  let pts = 0;
+  for (const suit of CARD_SUITS) {
+    const cards = hand[suit] || [];
+    for (const v of cards) {
+      if (v === 'A') pts += 4;
+      else if (v === 'K') pts += 3;
+      else if (v === 'Q') pts += 2;
+      else if (v === 'J') pts += 1;
+    }
+    if (cards.length >= 5) pts += cards.length - 4;
+  }
+  return pts;
+}
+
 function isRedSuit(suit) {
   return suit === '♥' || suit === '♦';
 }
@@ -1071,10 +1088,7 @@ function renderBidding(s) {
 
   const hcpBadge = $('bidding-hcp');
   if (hcpBadge && s.hand && !s.isSpectator) {
-    const hcp = CARD_SUITS.reduce((sum, suit) =>
-      sum + (s.hand[suit] || []).reduce((s2, v) =>
-        s2 + (v === 'A' ? 4 : v === 'K' ? 3 : v === 'Q' ? 2 : v === 'J' ? 1 : 0), 0), 0);
-    hcpBadge.textContent = `${hcp} pts`;
+    hcpBadge.textContent = `${calcHandPoints(s.hand)} pts`;
   } else if (hcpBadge) {
     hcpBadge.textContent = '';
   }
@@ -1309,6 +1323,11 @@ function renderGameoverHands(s) {
     const nameSpan = document.createElement('span');
     nameSpan.textContent = p.name;
     label.appendChild(nameSpan);
+    const pts = calcHandPoints(initial);
+    const ptsSpan = document.createElement('span');
+    ptsSpan.className = 'hand-pts';
+    ptsSpan.textContent = `${pts}pts`;
+    label.appendChild(ptsSpan);
     if (p.seat === s.bidder) {
       const role = document.createElement('span');
       role.className = 'hand-role bidder';

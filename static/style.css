@@ -428,9 +428,9 @@ body.has-spectators .screen {
   padding: 2px 4px;
   border-radius: 4px;
 }
-.bid-hist-name { color: var(--text-dim); }
-.bid-hist-dash { color: var(--text-dimmer); }
-.bid-hist-val { color: var(--accent-light); font-weight: 600; }
+.bid-hist-name { color: var(--text-dim); min-width: 7rem; text-align: right; }
+.bid-hist-dash { color: var(--text-dimmer); margin: 0 0.4rem; }
+.bid-hist-val { color: var(--accent-light); font-weight: 600; min-width: 5rem; }
 .bid-hist-pass .bid-hist-val { color: var(--text-dimmer); font-weight: 400; }
 .bid-grid {
   display: grid;
@@ -1027,6 +1027,11 @@ body.has-spectators .screen {
   line-height: 1;
   margin-top: 1px;
   height: 0.6rem;
+}
+.gameover-hand-row .hand-label .hand-pts {
+  font-size: 0.6rem;
+  color: var(--text-dimmer);
+  margin-left: 0.35em;
 }
 .gameover-hand-row .hand-label .hand-role {
   font-size: 0.6rem;
