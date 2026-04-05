@@ -76,6 +76,7 @@ export interface GameState {
   gameId: string;
   readySeats: number[];
   trickLog: TrickLogEntry[];
+  trickWinners: number[];
   initialHands: Hand[];
 }
 
@@ -113,6 +114,7 @@ export interface PlayerGameView {
   allFinalHands: Hand[] | null;
   /** Full trick history for recap UI (game over only). */
   trickLog: TrickLogEntry[] | null;
+  trickWinners: number[] | null;
   gameId: string;
   isPractice: boolean;
 }

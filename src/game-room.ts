@@ -252,6 +252,7 @@ export class GameRoom extends DurableObject {
       gameId: crypto.randomUUID(),
       readySeats: [],
       trickLog: [],
+      trickWinners: [],
       initialHands: [],
     };
   }
@@ -317,6 +318,7 @@ export class GameRoom extends DurableObject {
         ? state.hands
         : null,
       trickLog: state.phase === 'gameover' && state.trickLog.length > 0 ? state.trickLog : null,
+      trickWinners: state.phase === 'gameover' && state.trickWinners.length > 0 ? state.trickWinners : null,
       gameId: state.gameId,
       isPractice: state.players.filter((p) => p.isBot).length >= 2,
     };
@@ -727,6 +729,7 @@ export class GameRoom extends DurableObject {
       const winner = (state.firstPlayer + winnerOffset) % NUM_PLAYERS;
 
       state.sets[winner]++;
+      state.trickWinners.push(winner);
       state.lastTrick = {
         cards: [...state.playedCards],
         winner,
@@ -1480,6 +1483,7 @@ export class GameRoom extends DurableObject {
     state.trickComplete = false;
     state.bidHistory = [];
     state.trickLog = [];
+    state.trickWinners = [];
     state.initialHands = state.hands.map((h) => ({
       '♣': [...h['♣']],
       '♦': [...h['♦']],

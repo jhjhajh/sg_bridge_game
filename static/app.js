@@ -1307,6 +1307,9 @@ function renderGameoverHands(s) {
         if (!parsed) continue;
         const el = createCardEl(parsed.value, parsed.suit, { mini: true });
         el.classList.add(`po-${e.playOrder}`);
+        if (s.trickWinners && s.trickWinners[e.trickNum - 1] === e.seat) {
+          el.classList.add('trick-winner');
+        }
         cards.appendChild(el);
       }
       // Unplayed cards (game ended early) appended faded at the right
