@@ -432,6 +432,8 @@ function showGameSection(name) {
 }
 
 // --- Screen management ---
+const CHAT_SCREENS = new Set(['screen-lobby', 'screen-bidding', 'screen-partner', 'screen-play', 'screen-gameover', 'screen-spectator']);
+
 function showScreen(id) {
   screens.forEach((s) => s.classList.remove('active'));
   screens.forEach((s) => s.classList.add('hidden'));
@@ -446,6 +448,12 @@ function showScreen(id) {
     topBar.classList.remove('hidden');
     $('top-bar-room').textContent = roomCode || '';
     $('top-bar-name').textContent = playerName || '';
+  }
+
+  const gameChat = $('game-chat');
+  if (gameChat) {
+    if (CHAT_SCREENS.has(id)) gameChat.classList.remove('hidden');
+    else gameChat.classList.add('hidden');
   }
 }
 
@@ -1042,23 +1050,43 @@ function renderLobby(s) {
   }
 }
 
-// --- Lobby chat ---
+// --- In-game chat ---
 const CHAT_MAX_MESSAGES = 50;
+let chatCollapsed = false;
+let chatUnread = 0;
+
+function toggleChat() {
+  chatCollapsed = !chatCollapsed;
+  const chat = $('game-chat');
+  if (chat) chat.classList.toggle('collapsed', chatCollapsed);
+  if (!chatCollapsed) {
+    chatUnread = 0;
+    const badge = $('chat-unread');
+    if (badge) badge.classList.add('hidden');
+    const msgs = $('game-chat-messages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+}
 
 function appendChatMessage(name, text) {
-  const el = $('lobby-chat-messages');
+  const el = $('game-chat-messages');
   if (!el) return;
   const div = document.createElement('div');
   div.className = 'chat-msg';
   div.innerHTML = `<span class="chat-name">${esc(name)}</span>${esc(text)}`;
   el.appendChild(div);
-  // Keep at most CHAT_MAX_MESSAGES messages
   while (el.children.length > CHAT_MAX_MESSAGES) el.removeChild(el.firstChild);
-  el.scrollTop = el.scrollHeight;
+  if (chatCollapsed) {
+    chatUnread++;
+    const badge = $('chat-unread');
+    if (badge) { badge.textContent = chatUnread > 9 ? '9+' : String(chatUnread); badge.classList.remove('hidden'); }
+  } else {
+    el.scrollTop = el.scrollHeight;
+  }
 }
 
 function sendChat() {
-  const input = $('lobby-chat-input');
+  const input = $('game-chat-input');
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
@@ -1066,8 +1094,8 @@ function sendChat() {
   input.value = '';
 }
 
-$('lobby-chat-send').addEventListener('click', sendChat);
-$('lobby-chat-input').addEventListener('keydown', (e) => {
+$('game-chat-send').addEventListener('click', sendChat);
+$('game-chat-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
 });
 

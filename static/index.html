@@ -88,13 +88,6 @@
       <p id="lobby-status" class="status-text">Waiting for players...</p>
       <p id="lobby-countdown" class="status-text hidden"></p>
       <button id="lobby-start-btn" class="btn btn-primary hidden" onclick="send({type:'startGame'})">Start Game</button>
-      <div class="lobby-chat">
-        <div id="lobby-chat-messages" class="chat-messages"></div>
-        <div class="chat-input-row">
-          <input type="text" id="lobby-chat-input" placeholder="Message..." maxlength="200" autocomplete="off">
-          <button id="lobby-chat-send" class="btn btn-secondary btn-small">Send</button>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -246,6 +239,21 @@
       </div>
       <div id="stats-content"></div>
       <p class="stats-footer">Stats tracked from first deployment of this feature · Historical games not included</p>
+    </div>
+  </div>
+
+  <!-- In-game chat (fixed panel, visible across all game screens) -->
+  <div id="game-chat" class="game-chat hidden">
+    <div class="chat-header" onclick="toggleChat()">
+      <span>💬 Chat</span>
+      <span id="chat-unread" class="chat-unread hidden">●</span>
+    </div>
+    <div class="chat-body">
+      <div id="game-chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="game-chat-input" placeholder="Message..." maxlength="200" autocomplete="off">
+        <button id="game-chat-send" class="btn btn-secondary btn-small">Send</button>
+      </div>
     </div>
   </div>
 
