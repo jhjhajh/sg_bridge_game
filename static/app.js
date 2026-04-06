@@ -958,7 +958,7 @@ function renderLobby(s) {
     const notRankedBadge = (s.groupId && p.isGroupMember === false && !p.isBot)
       ? '<span class="not-ranked-badge">⚠️ not ranked</span>'
       : '';
-    const kickBtn = (!s.isSpectator && s.phase === 'lobby' && p.seat !== s.mySeat && !p.isBot)
+    const kickBtn = (!s.isSpectator && s.phase === 'lobby' && p.seat !== s.mySeat && (!p.isBot || isHost))
       ? `<button class="kick-btn" onclick="send({type:'kickPlayer',seat:${p.seat}})">✕</button>`
       : '';
     item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}${notRankedBadge}${kickBtn}`;

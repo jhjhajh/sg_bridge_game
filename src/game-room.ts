@@ -2476,7 +2476,7 @@ export class GameRoom extends DurableObject {
     if (!requestor || !requestor.connected) return;
     if (requestor.seat === targetSeat) return; // can't kick yourself
     const target = state.players.find((p) => p.seat === targetSeat);
-    if (!target || target.isBot) return; // bots are removed via removeBot
+    if (!target) return;
 
     // Notify and close the kicked player's WebSocket
     for (const [ws, info] of this.sessions) {
