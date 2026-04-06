@@ -1525,10 +1525,10 @@ function renderGameOver(s) {
 
   // Play Again button state
   const playAgainBtn = $('btn-play-again');
-  const iAmReady = !s.isSpectator && readySeats.includes(s.mySeat);
+  const iAmReadyBtn = !s.isSpectator && readySeats.includes(s.mySeat);
   if (playAgainBtn) {
-    playAgainBtn.disabled = iAmReady || s.isSpectator;
-    playAgainBtn.textContent = (iAmReady || s.isSpectator) ? 'Waiting...' : 'Play Again';
+    playAgainBtn.disabled = iAmReadyBtn || s.isSpectator;
+    playAgainBtn.textContent = (iAmReadyBtn || s.isSpectator) ? 'Waiting...' : 'Play Again';
   }
 
   // Countdown (reuses same pattern as lobby)
