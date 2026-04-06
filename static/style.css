@@ -775,7 +775,7 @@ body.has-spectators .screen {
 .trick-card-left  { grid-area: left; }
 .trick-card-right { grid-area: right; }
 .trick-card-bot   { grid-area: bot; }
-.trick-card .card-mini { width: clamp(34px, 7.2vw, 50px); font-size: clamp(1.2rem, 4.32vw, 1.56rem); }
+.trick-card .card-mini { width: clamp(37px, 7.9vw, 55px); font-size: clamp(1.32rem, 4.75vw, 1.72rem); }
 
 .trick-area.trick-complete .trick-card {
   opacity: 0.4;
@@ -1562,23 +1562,30 @@ body.has-spectators .screen {
   pointer-events: none;
 }
 .chat-bubble.visible { display: block; }
-.seat-top .chat-bubble    { top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; }
-.seat-bottom .chat-bubble { bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px; }
-.seat-left .chat-bubble   { left: 100%; top: 0; margin-left: 6px; }
-.seat-right .chat-bubble  { right: 100%; top: 0; margin-right: 6px; }
-@keyframes bubblePop {
-  from { opacity: 0; transform: translateX(-50%) scale(0.85); }
+.seat-top .chat-bubble    { left: 100%; top: 0; margin-left: 4px; transform: none; }
+.seat-bottom .chat-bubble { right: auto; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 4px; margin-bottom: 0; }
+.seat-left .chat-bubble   { left: 50%; top: auto; bottom: 100%; margin-left: 0; margin-bottom: 4px; transform: translateX(-50%); }
+.seat-right .chat-bubble  { right: 50%; top: auto; bottom: 100%; margin-right: 0; margin-bottom: 4px; transform: translateX(50%); }
+@keyframes bubblePopBottom {
+  from { opacity: 0; transform: translateY(-50%) translateX(-8px) scale(0.85); }
+  to   { opacity: 1; transform: translateY(-50%) scale(1); }
+}
+.seat-bottom .chat-bubble {
+  animation: bubblePopBottom 0.2s ease-out;
+}
+@keyframes bubblePopTopBottom {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.85); }
   to   { opacity: 1; transform: translateX(-50%) scale(1); }
 }
 .seat-left .chat-bubble, .seat-right .chat-bubble {
-  transform: none;
+  animation: bubblePopTopBottom 0.2s ease-out;
 }
-@keyframes bubblePopSide {
-  from { opacity: 0; transform: scale(0.85); }
+@keyframes bubblePopTop {
+  from { opacity: 0; transform: translateX(-8px) scale(0.85); }
   to   { opacity: 1; transform: scale(1); }
 }
-.seat-left .chat-bubble.visible, .seat-right .chat-bubble.visible {
-  animation: bubblePopSide 0.2s ease-out;
+.seat-top .chat-bubble {
+  animation: bubblePopTop 0.2s ease-out;
 }
 
 /* --- Not-ranked badge (group games) --- */
