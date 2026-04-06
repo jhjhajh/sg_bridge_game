@@ -432,8 +432,6 @@ function showGameSection(name) {
 }
 
 // --- Screen management ---
-const CHAT_SCREENS = new Set(['screen-lobby', 'screen-bidding', 'screen-partner', 'screen-play', 'screen-gameover', 'screen-spectator']);
-
 function showScreen(id) {
   screens.forEach((s) => s.classList.remove('active'));
   screens.forEach((s) => s.classList.add('hidden'));
@@ -448,12 +446,6 @@ function showScreen(id) {
     topBar.classList.remove('hidden');
     $('top-bar-room').textContent = roomCode || '';
     $('top-bar-name').textContent = playerName || '';
-  }
-
-  const gameChat = $('game-chat');
-  if (gameChat) {
-    if (CHAT_SCREENS.has(id)) gameChat.classList.remove('hidden');
-    else gameChat.classList.add('hidden');
   }
 }
 
@@ -759,7 +751,7 @@ function handleMessage(msg) {
       // State update follows from the server's broadcastFullState — no manual action needed
       break;
     case 'chat':
-      appendChatMessage(msg.name, msg.text);
+      appendChatMessage(msg.name, msg.seat, msg.text);
       break;
     case 'playerDisconnected':
       showConnectionToast(`${msg.name} disconnected`);
@@ -1050,43 +1042,54 @@ function renderLobby(s) {
   }
 }
 
-// --- In-game chat ---
+// --- Chat ---
 const CHAT_MAX_MESSAGES = 50;
-let chatCollapsed = false;
-let chatUnread = 0;
+const chatMessages = []; // { name, text }
+const CHAT_BUBBLE_MS = 4000;
+const chatBubbleTimers = {};
 
-function toggleChat() {
-  chatCollapsed = !chatCollapsed;
-  const chat = $('game-chat');
-  if (chat) chat.classList.toggle('collapsed', chatCollapsed);
-  if (!chatCollapsed) {
-    chatUnread = 0;
-    const badge = $('chat-unread');
-    if (badge) badge.classList.add('hidden');
-    const msgs = $('game-chat-messages');
-    if (msgs) msgs.scrollTop = msgs.scrollHeight;
-  }
-}
-
-function appendChatMessage(name, text) {
-  const el = $('game-chat-messages');
-  if (!el) return;
+function makeChatMsgEl(name, text) {
   const div = document.createElement('div');
   div.className = 'chat-msg';
   div.innerHTML = `<span class="chat-name">${esc(name)}</span>${esc(text)}`;
-  el.appendChild(div);
-  while (el.children.length > CHAT_MAX_MESSAGES) el.removeChild(el.firstChild);
-  if (chatCollapsed) {
-    chatUnread++;
-    const badge = $('chat-unread');
-    if (badge) { badge.textContent = chatUnread > 9 ? '9+' : String(chatUnread); badge.classList.remove('hidden'); }
-  } else {
-    el.scrollTop = el.scrollHeight;
+  return div;
+}
+
+function appendToChatLog(logEl, name, text) {
+  logEl.appendChild(makeChatMsgEl(name, text));
+  while (logEl.children.length > CHAT_MAX_MESSAGES) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function showChatBubble(seat, text) {
+  if (!gameState) return;
+  const rel = (seat - gameState.mySeat + 4) % 4;
+  const positions = ['bottom', 'left', 'top', 'right'];
+  const pos = positions[rel];
+  const bubble = $(`chat-bubble-${pos}`);
+  if (!bubble) return;
+  bubble.textContent = text;
+  bubble.classList.add('visible');
+  clearTimeout(chatBubbleTimers[pos]);
+  chatBubbleTimers[pos] = setTimeout(() => bubble.classList.remove('visible'), CHAT_BUBBLE_MS);
+}
+
+function appendChatMessage(name, seat, text) {
+  chatMessages.push({ name, text });
+  if (chatMessages.length > CHAT_MAX_MESSAGES) chatMessages.shift();
+
+  // Append to all visible inline chat logs
+  for (const log of document.querySelectorAll('.inline-chat-log')) {
+    appendToChatLog(log, name, text);
+  }
+
+  // Show bubble on play screen
+  if (seat >= 0 && $('screen-play') && $('screen-play').classList.contains('active')) {
+    showChatBubble(seat, text);
   }
 }
 
-function sendChat() {
-  const input = $('game-chat-input');
+function sendChatFrom(input) {
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
@@ -1094,9 +1097,18 @@ function sendChat() {
   input.value = '';
 }
 
-$('game-chat-send').addEventListener('click', sendChat);
-$('game-chat-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+// Event delegation for all chat inputs and send buttons
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('chat-send-btn')) {
+    const row = e.target.closest('.chat-input-row');
+    if (row) sendChatFrom(row.querySelector('.chat-input-field'));
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.classList.contains('chat-input-field')) {
+    e.preventDefault();
+    sendChatFrom(e.target);
+  }
 });
 
 const SPECTATOR_COLORS = ['#06b6d4','#f97316','#a3e635','#f43f5e','#a855f7','#facc15'];

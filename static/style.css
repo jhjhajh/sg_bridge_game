@@ -1518,66 +1518,34 @@ body.has-spectators .screen {
   width: 100%;
   margin-top: 0.75rem;
 }
-/* --- In-game chat panel (fixed bottom-right) --- */
-.game-chat {
-  position: fixed;
-  bottom: 0;
-  right: 1rem;
-  width: 260px;
-  z-index: 200;
-  background: rgba(15,10,30,0.92);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-bottom: none;
-  border-radius: 10px 10px 0 0;
-  backdrop-filter: blur(20px);
-  box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
+/* --- Inline chat (lobby + gameover) --- */
+.inline-chat {
+  margin-top: 1.25rem;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding-top: 1rem;
+  text-align: left;
 }
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.45rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-dim);
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  user-select: none;
-}
-.chat-header:hover { color: var(--text); }
-.chat-unread {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 99px;
-  font-size: 0.65rem;
-  padding: 0 0.35rem;
-  line-height: 1.5;
-}
-.chat-body { padding: 0.5rem; }
-.game-chat.collapsed .chat-body { display: none; }
-.chat-messages {
-  height: 130px;
+.inline-chat-log {
+  min-height: 60px;
+  max-height: 180px;
   overflow-y: auto;
-  padding: 0.25rem 0.25rem 0.4rem;
-  margin-bottom: 0.4rem;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
+  margin-bottom: 0.6rem;
   scroll-behavior: smooth;
 }
-.chat-messages:empty::before {
+.inline-chat-log:empty::before {
   content: 'No messages yet';
   color: rgba(255,255,255,0.2);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-style: italic;
-  align-self: center;
-  margin: auto 0;
 }
 .chat-msg {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   line-height: 1.4;
   word-break: break-word;
-  color: rgba(255,255,255,0.65);
+  color: rgba(255,255,255,0.7);
 }
 .chat-msg .chat-name {
   color: var(--accent-light);
@@ -1586,25 +1554,65 @@ body.has-spectators .screen {
 }
 .chat-input-row {
   display: flex;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 .chat-input-row input {
   flex: 1;
-  padding: 0.4rem 0.6rem;
+  padding: 0.45rem 0.7rem;
   background: rgba(255,255,255,0.07);
   border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   outline: none;
 }
 .chat-input-row input:focus {
   border-color: rgba(139,92,246,0.5);
   background: rgba(255,255,255,0.1);
 }
-.chat-input-row .btn-small {
-  padding: 0.4rem 0.6rem;
+
+/* --- Play screen chat input bar --- */
+.play-chat-bar {
+  margin-top: 0.5rem;
+  padding: 0 0.5rem;
+}
+
+/* --- Chat bubbles (play screen) --- */
+.chat-bubble {
+  display: none;
+  position: absolute;
+  background: rgba(30,20,60,0.92);
+  border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 10px;
+  padding: 0.3rem 0.55rem;
   font-size: 0.75rem;
+  color: var(--text);
+  max-width: 130px;
+  word-break: break-word;
+  line-height: 1.3;
+  white-space: normal;
+  z-index: 10;
+  animation: bubblePop 0.2s ease-out;
+  pointer-events: none;
+}
+.chat-bubble.visible { display: block; }
+.seat-top .chat-bubble    { top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; }
+.seat-bottom .chat-bubble { bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px; }
+.seat-left .chat-bubble   { left: 100%; top: 0; margin-left: 6px; }
+.seat-right .chat-bubble  { right: 100%; top: 0; margin-right: 6px; }
+@keyframes bubblePop {
+  from { opacity: 0; transform: translateX(-50%) scale(0.85); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+.seat-left .chat-bubble, .seat-right .chat-bubble {
+  transform: none;
+}
+@keyframes bubblePopSide {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.seat-left .chat-bubble.visible, .seat-right .chat-bubble.visible {
+  animation: bubblePopSide 0.2s ease-out;
 }
 
 /* --- Not-ranked badge (group games) --- */
