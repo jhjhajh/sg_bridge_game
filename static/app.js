@@ -950,7 +950,7 @@ function renderLobby(s) {
   for (const p of s.players) {
     const item = document.createElement('div');
     item.className = 'player-item';
-    const botIcon = p.isBot ? `<span class="bot-icon">${p.botLevel === 'sophisticated' ? '🎓' : p.botLevel === 'advanced' ? '🧠' : '🤖'}</span>` : '';
+    const botIcon = p.isBot ? `<span class="bot-icon">${p.botLevel === 'sophisticated' ? '🎓' : p.botLevel === 'advanced' ? '🧠' : p.botLevel === 'basic' ? '🎯' : '🤖'}</span>` : '';
     const eloStr = (!p.isBot && p.elo) ? `ELO ${p.elo} · ` : '';
     const statsHtml = (!p.isBot && p.gamesPlayed)
       ? `<span class="lobby-stats">${eloStr}${p.wins}W / ${p.gamesPlayed}G</span>`
@@ -958,7 +958,7 @@ function renderLobby(s) {
     const notRankedBadge = (s.groupId && p.isGroupMember === false && !p.isBot)
       ? '<span class="not-ranked-badge">⚠️ not ranked</span>'
       : '';
-    const kickBtn = (isHost && p.seat !== 0)
+    const kickBtn = (!s.isSpectator && s.phase === 'lobby' && p.seat !== s.mySeat && !p.isBot)
       ? `<button class="kick-btn" onclick="send({type:'kickPlayer',seat:${p.seat}})">✕</button>`
       : '';
     item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}${notRankedBadge}${kickBtn}`;
@@ -969,6 +969,25 @@ function renderLobby(s) {
   const countdownEl = $('lobby-countdown');
   const startBtn = $('lobby-start-btn');
   const statusEl = $('lobby-status');
+
+  // Waiting-for-others state: player pressed Play Again but not everyone has yet
+  if (s.phase === 'gameover') {
+    clearTimeout(lobbyCountdownTimer);
+    const readyCount = (s.readySeats ?? []).length;
+    countdownEl.classList.add('hidden');
+    startBtn.classList.add('hidden');
+    statusEl.classList.remove('hidden');
+    statusEl.textContent = `Waiting for others to play again... (${readyCount}/${NUM_PLAYERS})`;
+    const addIntBotBtn = $('lobby-add-int-bot');
+    const addAdvBotBtn = $('lobby-add-adv-bot');
+    const addSophBotBtn = $('lobby-add-soph-bot');
+    const addBasicBotBtn = $('lobby-add-basic-bot');
+    for (const btn of [addIntBotBtn, addAdvBotBtn, addSophBotBtn, addBasicBotBtn]) {
+      if (btn) btn.classList.add('hidden');
+    }
+    togglePractice('lobby-practice-notice', s.isPractice);
+    return;
+  }
 
   if (remaining === 0 && s.gameStartAt) {
     const secsLeft = Math.max(0, Math.ceil((s.gameStartAt - Date.now()) / 1000));
@@ -998,7 +1017,8 @@ function renderLobby(s) {
   const addIntBotBtn = $('lobby-add-int-bot');
   const addAdvBotBtn = $('lobby-add-adv-bot');
   const addSophBotBtn = $('lobby-add-soph-bot');
-  for (const btn of [addIntBotBtn, addAdvBotBtn, addSophBotBtn]) {
+  const addBasicBotBtn = $('lobby-add-basic-bot');
+  for (const btn of [addIntBotBtn, addAdvBotBtn, addSophBotBtn, addBasicBotBtn]) {
     if (!btn) continue;
     if (isHost && remaining > 0) btn.classList.remove('hidden');
     else btn.classList.add('hidden');
@@ -1425,6 +1445,14 @@ async function renderGameoverEloSection(s) {
 }
 
 function renderGameOver(s) {
+  // If this player already pressed "Play Again", show the lobby waiting screen instead
+  const iAmReady = !s.isSpectator && s.readySeats && s.readySeats.includes(s.mySeat);
+  if (iAmReady) {
+    showScreen('screen-lobby');
+    renderLobby(s);
+    return;
+  }
+
   renderPlayerStatusBar($('gameover-players'), s.players);
   renderSpectatorBar(s);
   const title = $('gameover-title');
@@ -1544,6 +1572,9 @@ function leaveGame() {
   clearTimeout(reconnectTimer);
   if (ws) {
     ws.onclose = null;
+    if (gameState && gameState.phase === 'lobby') {
+      try { ws.send(JSON.stringify({ type: 'leave' })); } catch { /* ignore */ }
+    }
     ws.close();
     ws = null;
   }

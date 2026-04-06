@@ -209,6 +209,13 @@ export async function getPairStats(db: D1Database, groupId?: string): Promise<Pa
  * Only authenticated players (tg_ IDs) are included. Guests and bots are skipped.
  * All DB writes are batched in a single db.batch() call.
  */
+export interface EloResult {
+  seat: number;
+  name: string;
+  delta: number;
+  eloAfter: number;
+}
+
 export async function recordEloUpdate(
   db: D1Database,
   gameId: string,
@@ -216,9 +223,9 @@ export async function recordEloUpdate(
   bidderSeat: number,
   partnerSeat: number,
   winnerSeats: number[],
-): Promise<void> {
+): Promise<EloResult[]> {
   const authPlayers = players.filter((p) => p.id.startsWith('tg_'));
-  if (authPlayers.length < 2) return;
+  if (authPlayers.length < 2) return [];
 
   const telegramIds = authPlayers.map((p) => Number(p.id.slice(3)));
   const placeholders = telegramIds.map(() => '?').join(',');
@@ -245,7 +252,7 @@ export async function recordEloUpdate(
   const teamA = bidderTeamSeats.map((s) => seatToPlayer.get(s)).filter(Boolean) as EloPlayer[];
   const teamB = oppTeamSeats.map((s) => seatToPlayer.get(s)).filter(Boolean) as EloPlayer[];
 
-  if (teamA.length === 0 || teamB.length === 0) return;
+  if (teamA.length === 0 || teamB.length === 0) return [];
 
   const teamAWon = winnerSeats.includes(bidderSeat);
   const deltas = computeEloDeltas(teamA, teamB, teamAWon);
@@ -253,9 +260,12 @@ export async function recordEloUpdate(
   const playedAt = Math.floor(Date.now() / 1000);
   const allPlayers = [...teamA, ...teamB];
 
+  const results: EloResult[] = [];
   const stmts = allPlayers.flatMap((player) => {
     const delta = deltas.get(player.telegramId) ?? 0;
     const newElo = player.elo + delta;
+    const p = players.find((pl) => pl.id === `tg_${player.telegramId}`);
+    if (p) results.push({ seat: p.seat, name: p.name, delta, eloAfter: newElo });
     return [
       db
         .prepare('UPDATE users SET elo = ? WHERE telegram_id = ?')
@@ -270,4 +280,5 @@ export async function recordEloUpdate(
   });
 
   await db.batch(stmts);
+  return results;
 }

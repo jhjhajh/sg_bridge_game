@@ -6,7 +6,7 @@ import type { ClientMessage, ServerMessage } from './protocol';
 import { recordGameResult, getWinnerSeats } from './stats';
 import { getUser, recordGroupResult } from './db';
 import { sendMessage, isChatMember } from './telegram';
-import { recordGameStats, recordEloUpdate } from './stats-db';
+import { recordGameStats, recordEloUpdate, type EloResult } from './stats-db';
 import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
 
 interface SessionInfo {
@@ -142,6 +142,9 @@ export class GameRoom extends DurableObject {
       case 'playAgain':
         await this.handlePlayAgain(state, session.playerId);
         this.ctx.waitUntil(this.scheduleBotAction());
+        break;
+      case 'leave':
+        await this.handleLeave(state, session.playerId);
         break;
       case 'watchSeat':
         await this.handleWatchSeat(state, session.playerId, msg.seat, ws);
@@ -793,21 +796,7 @@ export class GameRoom extends DurableObject {
           getWinnerSeats(bidder, partner, true),
         );
 
-        if (state.groupId) {
-          const bidStr = getBidFromNum(state.bid);
-          sendMessage(
-            (this.env as Env).TELEGRAM_BOT_TOKEN,
-            state.groupId,
-            `🏆 ${winnerNames.join(' & ')} won!\nBid ${bidStr}, made ${bidderSets}/${state.setsNeeded} tricks${isPracticeGame ? '\n(practice — unrated)' : ''}`,
-          ).catch(() => {});
-          if (!isPracticeGame) await recordGroupResult(
-            (this.env as Env).DB,
-            state.groupId,
-            state.players,
-            getWinnerSeats(bidder, partner, true),
-          );
-        }
-
+        let eloResults: EloResult[] = [];
         if (!isPracticeGame) {
           await recordGameStats(
             (this.env as Env).DB,
@@ -821,12 +810,30 @@ export class GameRoom extends DurableObject {
             getWinnerSeats(bidder, partner, true),
           );
 
-          await recordEloUpdate(
+          eloResults = await recordEloUpdate(
             (this.env as Env).DB,
             state.gameId,
             state.players,
             bidder,
             partner,
+            getWinnerSeats(bidder, partner, true),
+          );
+        }
+
+        if (state.groupId) {
+          const bidStr = getBidFromNum(state.bid);
+          const eloLines = eloResults.length > 0
+            ? '\n' + eloResults.map((r) => `  ${r.name}: ${r.delta >= 0 ? '+' : ''}${r.delta} → ${r.eloAfter}`).join('\n')
+            : '';
+          sendMessage(
+            (this.env as Env).TELEGRAM_BOT_TOKEN,
+            state.groupId,
+            `🏆 ${winnerNames.join(' & ')} won!\nBid ${bidStr}, made ${bidderSets}/${state.setsNeeded} tricks${isPracticeGame ? '\n(practice — unrated)' : eloLines}`,
+          ).catch(() => {});
+          if (!isPracticeGame) await recordGroupResult(
+            (this.env as Env).DB,
+            state.groupId,
+            state.players,
             getWinnerSeats(bidder, partner, true),
           );
         }
@@ -873,21 +880,7 @@ export class GameRoom extends DurableObject {
           getWinnerSeats(bidder, partner, false),
         );
 
-        if (state.groupId) {
-          const bidStr = getBidFromNum(state.bid);
-          sendMessage(
-            (this.env as Env).TELEGRAM_BOT_TOKEN,
-            state.groupId,
-            `🛡️ ${winnerNames.join(' & ')} defended!\n${state.players[bidder].name}'s ${bidStr} bid failed${isPracticeGame ? '\n(practice — unrated)' : ''}`,
-          ).catch(() => {});
-          if (!isPracticeGame) await recordGroupResult(
-            (this.env as Env).DB,
-            state.groupId,
-            state.players,
-            getWinnerSeats(bidder, partner, false),
-          );
-        }
-
+        let eloResults: EloResult[] = [];
         if (!isPracticeGame) {
           await recordGameStats(
             (this.env as Env).DB,
@@ -901,12 +894,30 @@ export class GameRoom extends DurableObject {
             getWinnerSeats(bidder, partner, false),
           );
 
-          await recordEloUpdate(
+          eloResults = await recordEloUpdate(
             (this.env as Env).DB,
             state.gameId,
             state.players,
             bidder,
             partner,
+            getWinnerSeats(bidder, partner, false),
+          );
+        }
+
+        if (state.groupId) {
+          const bidStr = getBidFromNum(state.bid);
+          const eloLines = eloResults.length > 0
+            ? '\n' + eloResults.map((r) => `  ${r.name}: ${r.delta >= 0 ? '+' : ''}${r.delta} → ${r.eloAfter}`).join('\n')
+            : '';
+          sendMessage(
+            (this.env as Env).TELEGRAM_BOT_TOKEN,
+            state.groupId,
+            `🛡️ ${winnerNames.join(' & ')} defended!\n${state.players[bidder].name}'s ${bidStr} bid failed${isPracticeGame ? '\n(practice — unrated)' : eloLines}`,
+          ).catch(() => {});
+          if (!isPracticeGame) await recordGroupResult(
+            (this.env as Env).DB,
+            state.groupId,
+            state.players,
             getWinnerSeats(bidder, partner, false),
           );
         }
@@ -1020,7 +1031,7 @@ export class GameRoom extends DurableObject {
       if (!current?.isBot) return false;
       const bidNum = (current.botLevel === 'advanced' || current.botLevel === 'sophisticated')
         ? this.getBotBidAdvanced(state, state.turn)
-        : this.getBotBid(state, state.turn);
+        : this.getBotBid(state, state.turn); // basic and intermediate use same bidding
       if (bidNum !== null) {
         await this.handleBid(state, current.id, bidNum);
       } else {
@@ -1042,12 +1053,54 @@ export class GameRoom extends DurableObject {
         ? this.getBotCardSophisticated(state, state.turn)
         : current.botLevel === 'advanced'
         ? this.getBotCardAdvanced(state, state.turn)
+        : current.botLevel === 'basic'
+        ? this.getBotCardBasic(state, state.turn)
         : this.getBotCard(state, state.turn);
       if (!card) return false;
       await this.handlePlayCard(state, current.id, card);
       return true;
     }
     return false;
+  }
+
+  // --- Basic bot card play ---
+  // Greedy: always try to win the current trick with the lowest winning card.
+  // If can't win, play the lowest card. Uses same bidding as intermediate.
+
+  private getBotCardBasic(state: GameState, seat: number): string {
+    const hand = state.hands[seat];
+    const validSuits = getValidSuits(hand, state.trumpSuit, state.currentSuit, state.trumpBroken);
+    if (validSuits.length === 0) return '';
+
+    const validCards: string[] = [];
+    for (const suit of validSuits) {
+      for (const value of hand[suit]) {
+        validCards.push(`${value} ${suit}`);
+      }
+    }
+    if (validCards.length === 0) return '';
+
+    const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
+
+    if (!trickInProgress) {
+      // Lead: play lowest card in longest non-trump suit; fallback to lowest overall
+      const nonTrump = validCards.filter((c) => c.split(' ')[1] !== state.trumpSuit);
+      const pool = nonTrump.length > 0 ? nonTrump : validCards;
+      return pool.reduce((a, b) => getNumFromValue(a.split(' ')[0]) < getNumFromValue(b.split(' ')[0]) ? a : b);
+    }
+
+    // Try to win: find lowest card that wins when added to the current trick
+    const orderedSoFar = this.getOrderedCardsPlayed(state);
+    const winning = validCards.filter((card) => {
+      const test = [...orderedSoFar, card];
+      return compareCards(test, state.currentSuit!, state.trumpSuit) === test.length - 1;
+    });
+    if (winning.length > 0) {
+      return winning.reduce((a, b) => getNumFromValue(a.split(' ')[0]) < getNumFromValue(b.split(' ')[0]) ? a : b);
+    }
+
+    // Can't win — play lowest card
+    return validCards.reduce((a, b) => getNumFromValue(a.split(' ')[0]) < getNumFromValue(b.split(' ')[0]) ? a : b);
   }
 
   // --- Intermediate bot card play ---
@@ -2347,7 +2400,7 @@ export class GameRoom extends DurableObject {
     this.ctx.waitUntil(this.scheduleBotAction());
   }
 
-  private async handleAddBot(state: GameState, playerId: string, level: 'intermediate' | 'advanced' | 'sophisticated' = 'intermediate'): Promise<void> {
+  private async handleAddBot(state: GameState, playerId: string, level: 'basic' | 'intermediate' | 'advanced' | 'sophisticated' = 'intermediate'): Promise<void> {
     if (state.phase !== 'lobby') return;
     const requestor = state.players.find((p) => p.id === playerId);
     if (!requestor || requestor.seat !== 0) return;
@@ -2360,11 +2413,11 @@ export class GameRoom extends DurableObject {
       'Knave', 'Lucky', 'Midas', 'Nova', 'Oracle',
       'Pepper', 'Quill', 'Rogue', 'Spade', 'Thorn',
     ];
-    const prefix = level === 'sophisticated' ? '[S] ' : level === 'advanced' ? '[A] ' : '[I] ';
+    const prefix = level === 'sophisticated' ? '[S] ' : level === 'advanced' ? '[A] ' : level === 'basic' ? '[B] ' : '[I] ';
     const usedNames = new Set(state.players.map((p) => p.name));
     // Strip prefix when checking availability so all levels share the same name pool
     const available = BOT_NAME_POOL.filter((n) =>
-      !usedNames.has(`[I] ${n}`) && !usedNames.has(`[A] ${n}`) && !usedNames.has(`[S] ${n}`),
+      !usedNames.has(`[B] ${n}`) && !usedNames.has(`[I] ${n}`) && !usedNames.has(`[A] ${n}`) && !usedNames.has(`[S] ${n}`),
     );
     const picked = available.length > 0
       ? available[Math.floor(Math.random() * available.length)]
@@ -2419,17 +2472,17 @@ export class GameRoom extends DurableObject {
   private async handleKickPlayer(state: GameState, requestorId: string, targetSeat: number): Promise<void> {
     if (state.phase !== 'lobby') return;
     const requestor = state.players.find((p) => p.id === requestorId);
-    if (!requestor || requestor.seat !== 0) return;
-    if (targetSeat === 0) return;
+    if (!requestor || !requestor.connected) return;
+    if (requestor.seat === targetSeat) return; // can't kick yourself
     const target = state.players.find((p) => p.seat === targetSeat);
-    if (!target) return;
+    if (!target || target.isBot) return; // bots are removed via removeBot
 
     // Notify and close the kicked player's WebSocket
     for (const [ws, info] of this.sessions) {
       if (info.playerId === target.id) {
         try {
-          ws.send(JSON.stringify({ type: 'kicked', reason: 'You were removed by the host.' }));
-          ws.close(1000, 'Kicked by host');
+          ws.send(JSON.stringify({ type: 'kicked', reason: 'You were removed from the lobby.' }));
+          ws.close(1000, 'Kicked');
         } catch { /* already closed */ }
         this.sessions.delete(ws);
         break;
@@ -2450,6 +2503,35 @@ export class GameRoom extends DurableObject {
     }
 
     this.broadcast({ type: 'playerKicked', seat: kickedSeat, name: kickedName });
+    await this.saveState(state);
+    this.broadcastFullState(state);
+  }
+
+  private async handleLeave(state: GameState, playerId: string): Promise<void> {
+    if (state.phase !== 'lobby') return;
+    const player = state.players.find((p) => p.id === playerId);
+    if (!player || player.isBot) return;
+
+    const leaverName = player.name;
+    const leaverSeat = player.seat;
+
+    // Remove player from session tracking (webSocketClose will still fire but player won't be in state)
+    for (const [ws, info] of this.sessions) {
+      if (info.playerId === playerId) {
+        this.sessions.delete(ws);
+        break;
+      }
+    }
+
+    state.players = state.players.filter((p) => p.id !== playerId);
+    state.players.forEach((p, i) => { p.seat = i; });
+
+    if (state.gameStartAt !== null) {
+      state.gameStartAt = null;
+      await this.ctx.storage.deleteAlarm();
+    }
+
+    this.broadcast({ type: 'playerKicked', seat: leaverSeat, name: leaverName });
     await this.saveState(state);
     this.broadcastFullState(state);
   }
