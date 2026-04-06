@@ -782,10 +782,6 @@ body.has-spectators .screen {
   transition: opacity 0.3s ease;
 }
 
-.sets-display {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem;
-  margin-bottom: 0.5rem; font-size: 0.8rem;
-}
 .set-item {
   background: var(--glass); padding: 0.35rem 0.75rem;
   border-radius: var(--radius-sm); font-weight: 500;
@@ -1169,23 +1165,52 @@ body.has-spectators .screen {
   .suit-group + .suit-group { margin-left: 6px; }
 }
 
-/* --- Last Trick button --- */
-.btn-last-trick {
-  background: rgba(108,92,231,0.15);
-  border: 1px solid rgba(108,92,231,0.3);
-  color: var(--accent-light);
-  font-size: 0.7rem;
-  font-weight: 600;
-  font-family: var(--font);
-  padding: 0.35rem 0.75rem;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition);
-  white-space: nowrap;
+/* --- Last Trick mini panel (bottom-right of table) --- */
+.last-trick-panel {
+  position: absolute;
+  bottom: 3%;
+  right: 3%;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 0.25rem 0.3rem;
+  z-index: 2;
+  backdrop-filter: blur(4px);
 }
-.btn-last-trick:hover {
-  background: rgba(108,92,231,0.25);
-  border-color: rgba(108,92,231,0.5);
+.ltp-label {
+  font-size: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dimmer);
+  text-align: center;
+  margin-bottom: 0.15rem;
+}
+.ltp-grid {
+  display: grid;
+  grid-template-areas:
+    ". top ."
+    "left . right"
+    ". bot .";
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  gap: 2px;
+}
+.ltp-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ltp-top   { grid-area: top; }
+.ltp-left  { grid-area: left; }
+.ltp-right { grid-area: right; }
+.ltp-bot   { grid-area: bot; }
+.ltp-winner .card-mini {
+  box-shadow: 0 0 0 2px var(--gold);
+  border-radius: 4px;
+}
+.ltp-grid .card-mini {
+  width: clamp(20px, 4vw, 30px);
+  font-size: clamp(0.7rem, 2.4vw, 1rem);
 }
 
 /* --- Connection toast --- */
@@ -1278,64 +1303,6 @@ body.has-spectators .screen {
 @keyframes sweepRight {
   from { opacity: 1; transform: translateX(0); }
   to { opacity: 0; transform: translateX(60px) scale(0.7); }
-}
-
-/* --- Last Trick popup --- */
-.last-trick-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.7);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 800;
-  animation: fadeIn 0.2s ease-out;
-}
-.last-trick-box {
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  backdrop-filter: blur(20px);
-  padding: 1.5rem 2rem;
-  text-align: center;
-  max-width: 380px;
-  width: 90%;
-  animation: fadeIn 0.25s ease-out;
-}
-.last-trick-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-dim);
-  margin-bottom: 1.25rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.last-trick-cards {
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
-  flex-wrap: wrap;
-}
-.last-trick-card-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.4rem;
-}
-.last-trick-player-label {
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--text-dimmer);
-  max-width: 70px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.last-trick-player-label.winner {
-  color: var(--gold);
-  font-weight: 700;
 }
 
 /* --- Animations --- */

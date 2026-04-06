@@ -817,62 +817,45 @@ function showTrickWonBanner(winnerName) {
   }, 1200);
 }
 
-function showLastTrick() {
-  if (!gameState || !gameState.lastTrick) return;
+function renderLastTrickPanel(s) {
+  const panel = $('last-trick-panel');
+  if (!panel) return;
+  if (!s.lastTrick) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  const lt = s.lastTrick;
+  const mySeat = s.mySeat ?? 0;
+  const seatOrder = [mySeat, (mySeat+1)%4, (mySeat+2)%4, (mySeat+3)%4];
+  // visual positions: bot=me, left, top=across, right
+  const positions = ['bot', 'left', 'top', 'right'];
 
-  const existing = $('last-trick-popup');
-  if (existing) { existing.remove(); return; }
+  panel.innerHTML = '';
+  const lbl = document.createElement('div');
+  lbl.className = 'ltp-label';
+  lbl.textContent = 'Last Trick';
+  panel.appendChild(lbl);
 
-  const lt = gameState.lastTrick;
-  const overlay = document.createElement('div');
-  overlay.id = 'last-trick-popup';
-  overlay.className = 'last-trick-overlay';
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) overlay.remove();
-  });
+  const grid = document.createElement('div');
+  grid.className = 'ltp-grid';
 
-  const box = document.createElement('div');
-  box.className = 'last-trick-box';
-
-  const title = document.createElement('div');
-  title.className = 'last-trick-title';
-  const winnerName = gameState.players[lt.winner]?.name || '?';
-  title.textContent = `Last Trick — won by ${winnerName}`;
-  box.appendChild(title);
-
-  const cards = document.createElement('div');
-  cards.className = 'last-trick-cards';
-
-  for (let seat = 0; seat < 4; seat++) {
+  for (let i = 0; i < 4; i++) {
+    const seat = seatOrder[i];
+    const pos = positions[i];
     const card = lt.cards[seat];
-    if (!card) continue;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'last-trick-card-item';
-
-    const label = document.createElement('div');
-    label.className = 'last-trick-player-label';
-    label.textContent = gameState.players[seat]?.name || `Seat ${seat + 1}`;
-    if (seat === lt.winner) label.classList.add('winner');
-
-    const parts = card.split(' ');
-    const trumpFire = isTrumpPlaySuit(parts[1], gameState.trumpSuit);
-    const cardEl = createCardEl(parts[0], parts[1], { mini: false, trumpFire });
-
-    wrapper.appendChild(label);
-    wrapper.appendChild(cardEl);
-    cards.appendChild(wrapper);
+    const item = document.createElement('div');
+    item.className = `ltp-item ltp-${pos}`;
+    if (seat === lt.winner) item.classList.add('ltp-winner');
+    if (card) {
+      const parts = card.split(' ');
+      const trumpFire = isTrumpPlaySuit(parts[1], s.trumpSuit);
+      item.appendChild(createCardEl(parts[0], parts[1], { mini: true, trumpFire }));
+    }
+    grid.appendChild(item);
   }
 
-  box.appendChild(cards);
-
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'btn btn-small';
-  closeBtn.textContent = 'Close';
-  closeBtn.addEventListener('click', () => overlay.remove());
-  box.appendChild(closeBtn);
-
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
+  panel.appendChild(grid);
 }
 
 // --- Render based on full state ---
@@ -1349,16 +1332,8 @@ function renderPlay(s) {
     trickArea.appendChild(wrapper);
   }
 
-  // Sets display (only Last Trick button — per-player sets shown on seat labels)
-  const setsDiv = $('sets-display');
-  setsDiv.innerHTML = '';
-  if (s.lastTrick && !s.trickComplete) {
-    const ltBtn = document.createElement('button');
-    ltBtn.className = 'btn-last-trick';
-    ltBtn.textContent = 'Last Trick';
-    ltBtn.addEventListener('click', showLastTrick);
-    setsDiv.appendChild(ltBtn);
-  }
+  // Last trick mini panel (bottom-right of table)
+  renderLastTrickPanel(s);
 
   // Hand
   const isMyTurn = !s.isSpectator && s.turn === s.mySeat;
