@@ -273,8 +273,10 @@ export class GameRoom extends DurableObject {
     const player = state.players.find((p) => p.id === playerId);
     const spectator = !player ? state.spectators.find((s) => s.id === playerId) : undefined;
     const isSpectator = !!spectator;
-    const mySeat = player?.seat ?? (spectator ? spectator.watchingSeat : -1);
     const watchingSeat = spectator?.watchingSeat ?? -1;
+    const isFullBoard = isSpectator && watchingSeat === -2;
+    // For full board, anchor to seat 0 (north) for consistent orientation. For regular viewers, use the watched/played seat.
+    const mySeat = player?.seat ?? (spectator ? (isFullBoard ? 0 : watchingSeat) : -1);
 
     const view: PlayerGameView = {
       roomCode: state.roomCode,
@@ -290,7 +292,8 @@ export class GameRoom extends DurableObject {
         isGroupMember: p.isGroupMember,
         elo: p.elo,
       })),
-      hand: mySeat >= 0 && state.hands.length > 0 ? state.hands[mySeat] : null,
+      hand: !isFullBoard && mySeat >= 0 && state.hands.length > 0 ? state.hands[mySeat] : null,
+      allHands: isFullBoard && state.hands.length > 0 ? state.hands : null,
       turn: state.turn,
       bidder: state.bidder,
       bid: state.bid,
@@ -411,7 +414,6 @@ export class GameRoom extends DurableObject {
       ws.send(JSON.stringify({ type: 'error', message: 'You must log in with Telegram to play.' }));
       return;
     }
-
     const existing = state.players.find((p) => p.id === playerId);
     if (existing) {
       existing.name = name;
@@ -963,8 +965,7 @@ export class GameRoom extends DurableObject {
   ): Promise<void> {
     const spectator = state.spectators.find((s) => s.id === playerId);
     if (!spectator) return;
-    if (spectator.watchingSeat >= 0) return; // locked — cannot change mid-game
-    if (seat < 0 || seat >= NUM_PLAYERS) return;
+    if (seat < -2 || seat >= NUM_PLAYERS) return; // -2 = full board, -1 = unset, 0-3 = specific seat
     spectator.watchingSeat = seat;
     await this.saveState(state);
     ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));

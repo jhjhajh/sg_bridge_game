@@ -130,6 +130,109 @@ body.has-spectators .screen {
   padding-top: 76px;
 }
 
+/* Spectator seat switcher */
+.spectator-seat-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm);
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+.switcher-label {
+  color: var(--text-dim);
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.switcher-buttons {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+}
+.switcher-buttons button {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-dim);
+  padding: 0.35rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: var(--font);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.switcher-buttons button:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.2);
+  color: var(--text);
+}
+.switcher-buttons button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .spectator-seat-switcher {
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: unset;
+  }
+  .switcher-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex-wrap: unset;
+  }
+  .switcher-buttons button:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Full board hands grid */
+.fullboard-hands {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.fullboard-row {
+  padding: 0.5rem 0.75rem;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+}
+
+.fullboard-row.active-turn {
+  background: rgba(108,92,231,0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(108,92,231,0.3);
+}
+
+.fullboard-name {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.fullboard-hand {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+
+
 /* --- Overlay --- */
 .overlay {
   position: fixed; inset: 0;
@@ -647,7 +750,7 @@ body.has-spectators .screen {
 .seat-top    { top: 4%;   left: 50%; transform: translateX(-50%); }
 .seat-left   { top: 50%;  left: 4%;  transform: translateY(-50%); }
 .seat-right  { top: 50%;  right: 4%; transform: translateY(-50%); }
-.seat-bottom { bottom: 4%; left: 50%; transform: translateX(-50%); }
+.seat-bottom { bottom: 4%; left: 50%; transform: translateX(-50%); flex-direction: column-reverse; }
 
 .seat-card { min-height: 30px; }
 

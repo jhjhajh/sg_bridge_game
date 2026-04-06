@@ -31,7 +31,7 @@ export interface TrickRecord {
 export interface Spectator {
   id: string;
   name: string;
-  watchingSeat: number; // -1 = not yet chosen
+  watchingSeat: number; // -1 = not yet chosen, -2 = full board view, 0-3 = specific seat
 }
 
 export interface BidHistoryEntry {
@@ -87,6 +87,7 @@ export interface PlayerGameView {
   phase: GamePhase;
   players: { name: string; seat: number; connected: boolean; wins?: number; gamesPlayed?: number; isBot?: boolean; botLevel?: 'basic' | 'intermediate' | 'advanced' | 'sophisticated'; isGroupMember?: boolean; elo?: number }[];
   hand: Hand | null;
+  allHands: Hand[] | null; // all 4 hands, only for full-board spectators (watchingSeat === -2)
   turn: number;
   bidder: number;
   bid: number;

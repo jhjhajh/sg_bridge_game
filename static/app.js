@@ -898,8 +898,8 @@ function renderState() {
   const s = gameState;
   if (!s) return;
 
-  // Spectator hasn't chosen a player yet — show selection screen
-  if (s.isSpectator && s.watchingSeat < 0) {
+  // Spectator hasn't chosen a player yet — show selection screen (only for unset, not for full board)
+  if (s.isSpectator && s.watchingSeat === -1) {
     showScreen('screen-spectator');
     renderSpectatorChoose(s);
     return;
@@ -1063,12 +1063,21 @@ function renderSpectatorBar(s) {
 function renderBidding(s) {
   renderPlayerStatusBar($('bidding-players'), s.players);
   renderSpectatorBar(s);
+  renderSpectatorSwitcher(s, 'bidding-spectator-switcher');
+  renderFullBoardInto(s, 'bidding-fullboard', ['bidding-hand-section']);
+
+  const isFullBoard = s.isSpectator && s.watchingSeat === -2;
   const isMyTurn = s.turn === s.mySeat;
-  $('bid-status').textContent = s.isSpectator
-    ? `👁 Watching: ${s.players[s.watchingSeat]?.name || '?'}`
-    : isMyTurn
-      ? "It's your turn to bid!"
-      : `Waiting for ${s.players[s.turn]?.name || '?'} to bid...`;
+
+  if (isFullBoard) {
+    $('bid-status').textContent = '👁 Viewing all hands';
+  } else {
+    $('bid-status').textContent = s.isSpectator
+      ? `👁 Watching: ${s.players[s.watchingSeat]?.name || '?'}`
+      : isMyTurn
+        ? "It's your turn to bid!"
+        : `Waiting for ${s.players[s.turn]?.name || '?'} to bid...`;
+  }
 
   if (s.bid >= 0 && s.bidder >= 0) {
     $('bid-current').textContent = `Current bid: ${s.players[s.bidder].name} - ${getBidFromNum(s.bid)}`;
@@ -1103,11 +1112,24 @@ function renderBidding(s) {
   }
 
   $('btn-pass').disabled = s.isSpectator || !isMyTurn;
-  renderHand($('bidding-hand'), s.hand, null, null);
+  if (!isFullBoard) {
+    renderHand($('bidding-hand'), s.hand, null, null);
+  }
   togglePractice('bid-practice-badge', s.isPractice);
 
+  // Hand label: show player name when spectating
+  const handLabel = $('bidding-hand-label');
+  if (handLabel) {
+    if (s.isSpectator && s.watchingSeat >= 0) {
+      handLabel.textContent = `${s.players[s.watchingSeat]?.name || '?'}'s Hand`;
+    } else {
+      handLabel.textContent = 'Your Hand';
+    }
+  }
+
+  // Show HCP for spectators too
   const hcpBadge = $('bidding-hcp');
-  if (hcpBadge && s.hand && !s.isSpectator) {
+  if (hcpBadge && s.hand) {
     hcpBadge.textContent = `${calcHandPoints(s.hand)} pts`;
   } else if (hcpBadge) {
     hcpBadge.textContent = '';
@@ -1118,11 +1140,17 @@ function renderBidding(s) {
 function renderPartner(s) {
   renderPlayerStatusBar($('partner-players'), s.players);
   renderSpectatorBar(s);
+  renderSpectatorSwitcher(s, 'partner-spectator-switcher');
+  renderFullBoardInto(s, 'partner-fullboard', ['partner-hand-section']);
+
+  const isFullBoard = s.isSpectator && s.watchingSeat === -2;
   const isBidder = s.mySeat === s.bidder;
   $('partner-title').textContent = isBidder ? 'Select Partner Card' : 'Partner Selection';
-  $('partner-status').textContent = isBidder
-    ? 'Choose a card to call as your partner:'
-    : `Waiting for ${s.players[s.bidder]?.name || '?'} to select partner...`;
+  $('partner-status').textContent = isFullBoard
+    ? '👁 Viewing all hands'
+    : isBidder
+      ? 'Choose a card to call as your partner:'
+      : `Waiting for ${s.players[s.bidder]?.name || '?'} to select partner...`;
 
   const grid = $('partner-grid');
   grid.innerHTML = '';
@@ -1144,13 +1172,29 @@ function renderPartner(s) {
     }
   }
 
-  renderHand($('partner-hand'), s.hand, null, null);
+  if (!isFullBoard) {
+    renderHand($('partner-hand'), s.hand, null, null);
+  }
   togglePractice('partner-practice-badge', s.isPractice);
+
+  // Hand label: show player name when spectating
+  const handLabel = $('partner-hand-label');
+  if (handLabel) {
+    if (s.isSpectator && s.watchingSeat >= 0) {
+      handLabel.textContent = `${s.players[s.watchingSeat]?.name || '?'}'s Hand`;
+    } else {
+      handLabel.textContent = 'Your Hand';
+    }
+  }
 }
 
 // --- Play ---
 function renderPlay(s) {
   renderSpectatorBar(s);
+  renderSpectatorSwitcher(s, 'play-spectator-switcher');
+
+  // Full board: show hand rows above the board, hide only the single bottom hand
+  renderFullBoardInto(s, 'play-fullboard', ['play-hand-section']);
   // Info bar
   if (s.bid >= 0 && s.bidder >= 0) {
     $('play-bid-info').textContent = `Bid: ${s.players[s.bidder].name} - ${getBidFromNum(s.bid)}`;
@@ -1285,17 +1329,99 @@ function getValidSuitsClient(hand, trumpSuit, currentSuit, trumpBroken) {
 function renderSpectatorChoose(s) {
   const grid = $('spectator-grid');
   if (!grid) return;
-  grid.innerHTML = s.players.map((p) =>
+  let html = s.players.map((p) =>
     `<button class="btn spectator-player-btn" onclick="sendWatchSeat(${p.seat})">
       <span class="spectator-seat-num">Seat ${p.seat + 1}</span>
       <span class="spectator-player-name">${esc(p.name)}</span>
     </button>`
   ).join('');
+  // Add full board option
+  html += `<button class="btn spectator-player-btn" onclick="sendWatchSeat(-2)">
+    <span class="spectator-seat-num">👁</span>
+    <span class="spectator-player-name">View Whole Board</span>
+  </button>`;
+  grid.innerHTML = html;
 }
 
 function sendWatchSeat(seat) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'watchSeat', seat }));
+  }
+}
+
+/**
+ * Render the spectator seat switcher into the given element ID.
+ * Pass the ID of the switcher div (e.g. 'play-spectator-switcher').
+ */
+function renderSpectatorSwitcher(s, switcherId) {
+  const switcher = $(switcherId);
+  if (!switcher) return;
+
+  if (!s.isSpectator) {
+    switcher.classList.add('hidden');
+    return;
+  }
+
+  switcher.classList.remove('hidden');
+  const container = switcher.querySelector('.switcher-buttons');
+  if (!container) return;
+
+  let html = '';
+  for (let i = 0; i < s.players.length; i++) {
+    const p = s.players[i];
+    const active = s.watchingSeat === i ? 'active' : '';
+    html += `<button class="${active}" onclick="sendWatchSeat(${i})">${esc(p.name)}</button>`;
+  }
+  const allActive = s.watchingSeat === -2 ? 'active' : '';
+  html += `<button class="${allActive}" onclick="sendWatchSeat(-2)">View all players</button>`;
+  container.innerHTML = html;
+}
+
+/**
+ * Render the full-board hands view into the given container ID.
+ * Hides the elements listed in hideIds, shows them again when not in full-board mode.
+ */
+function renderFullBoardInto(s, containerId, hideIds) {
+  const container = $(containerId);
+  if (!container) return;
+
+  const isFullBoard = s.isSpectator && s.watchingSeat === -2 && s.allHands;
+
+  // Toggle visibility of the fullboard vs the normal hand/table elements
+  for (const id of hideIds) {
+    const el = $(id);
+    if (el) el.style.display = isFullBoard ? 'none' : '';
+  }
+
+  if (!isFullBoard) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = '';
+
+  for (let seat = 0; seat < 4; seat++) {
+    const hand = s.allHands[seat];
+    const player = s.players[seat];
+    if (!hand || !player) continue;
+
+    const rowDiv = document.createElement('div');
+    rowDiv.className = `fullboard-row ${s.turn === seat ? 'active-turn' : ''}`;
+
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'fullboard-name';
+    nameDiv.innerHTML = `${esc(player.name)} <span class="hcp-badge">${calcHandPoints(hand)} pts</span>`;
+    rowDiv.appendChild(nameDiv);
+
+    // Use the same card-hand class as the normal hand display
+    const handDiv = document.createElement('div');
+    handDiv.className = 'card-hand';
+    renderHand(handDiv, hand, CARD_SUITS, null);
+    rowDiv.appendChild(handDiv);
+
+    container.appendChild(rowDiv);
   }
 }
 
@@ -1474,8 +1600,10 @@ function renderGameOver(s) {
       container.classList.remove('outcome-win', 'outcome-loss');
       container.classList.add(iWon ? 'outcome-win' : 'outcome-loss');
     }
-    title.textContent = iWon ? 'You Won!' : 'Game Over';
     const winnersStr = lastGameOver.winnerNames.join(' & ');
+    title.textContent = s.isSpectator
+      ? `${winnersStr} Won!`
+      : iWon ? 'You Won!' : 'Game Over';
     detail.innerHTML = lastGameOver.bidderWon
       ? `${esc(winnersStr)} won the bid of ${esc(bidStr)}<br><span style="font-size:0.82em">(needed ${s.setsNeeded} sets)</span>`
       : `${esc(winnersStr)} defeated the bid of ${esc(bidStr)}`;

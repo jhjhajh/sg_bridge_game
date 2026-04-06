@@ -103,8 +103,13 @@
       </div>
       <div id="bid-grid" class="bid-grid"></div>
       <button id="btn-pass" class="btn btn-pass">Pass</button>
-      <div class="hand-display">
-        <h3>Your Hand <span id="bidding-hcp" class="hcp-badge"></span></h3>
+      <div id="bidding-spectator-switcher" class="spectator-seat-switcher hidden">
+        <span class="switcher-label">Watching:</span>
+        <div class="switcher-buttons"></div>
+      </div>
+      <div id="bidding-fullboard" class="fullboard-hands hidden"></div>
+      <div class="hand-display" id="bidding-hand-section">
+        <h3><span id="bidding-hand-label">Your Hand</span> <span id="bidding-hcp" class="hcp-badge"></span></h3>
         <div id="bidding-hand" class="card-hand"></div>
       </div>
     </div>
@@ -117,8 +122,13 @@
       <div id="partner-players" class="player-status-bar"></div>
       <p id="partner-status"></p>
       <div id="partner-grid" class="partner-grid"></div>
-      <div class="hand-display">
-        <h3>Your Hand</h3>
+      <div id="partner-spectator-switcher" class="spectator-seat-switcher hidden">
+        <span class="switcher-label">Watching:</span>
+        <div class="switcher-buttons"></div>
+      </div>
+      <div id="partner-fullboard" class="fullboard-hands hidden"></div>
+      <div class="hand-display" id="partner-hand-section">
+        <h3><span id="partner-hand-label">Your Hand</span></h3>
         <div id="partner-hand" class="card-hand"></div>
       </div>
     </div>
@@ -132,6 +142,11 @@
         <span id="play-partner-info"></span>
         <span id="play-trump-info"></span>
         <span id="play-practice-badge" class="practice-badge hidden">Practice</span>
+      </div>
+
+      <div id="play-spectator-switcher" class="spectator-seat-switcher hidden">
+        <span class="switcher-label">Watching:</span>
+        <div class="switcher-buttons"></div>
       </div>
 
       <div class="table" id="play-table">
@@ -165,7 +180,9 @@
 
       <div class="sets-display" id="sets-display"></div>
 
-      <div class="hand-display">
+      <div id="play-fullboard" class="fullboard-hands hidden"></div>
+
+      <div class="hand-display" id="play-hand-section">
         <div id="play-hand" class="card-hand"></div>
       </div>
     </div>
@@ -193,7 +210,7 @@
   <div id="screen-spectator" class="screen hidden">
     <div class="home-container">
       <h2>👁 Choose who to watch</h2>
-      <p class="subtitle">Pick a player — you can't switch until the game ends.</p>
+      <p class="subtitle">Pick a player or view the whole board.</p>
       <div id="spectator-grid" class="spectator-grid"></div>
     </div>
   </div>
