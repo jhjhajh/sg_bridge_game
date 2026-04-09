@@ -1230,6 +1230,45 @@ function renderPartner(s) {
 
   const isFullBoard = s.isSpectator && s.watchingSeat === -2;
   const isBidder = s.mySeat === s.bidder;
+
+  const partnerHistEl = $('partner-bid-history');
+  if (partnerHistEl && s.bidHistory && s.bidHistory.length > 0) {
+    const firstBidderName = s.bidHistory[0].name;
+    const startIdx = s.players.findIndex(p => p.name === firstBidderName);
+    const cols = [];
+    for (let i = 0; i < 4; i++) {
+      cols.push(s.players[(startIdx + i) % s.players.length]);
+    }
+
+    let html = '<table class="bid-table"><thead><tr>';
+    for (const p of cols) {
+      html += `<th>${esc(p.name)}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+
+    for (let i = 0; i < s.bidHistory.length; i += 4) {
+      html += '<tr>';
+      const rowEnd = Math.min(i + 4, s.bidHistory.length);
+      for (let j = i; j < rowEnd; j++) {
+        const entry = s.bidHistory[j];
+        if (entry.bidNum === null) {
+          html += `<td class="bt-pass">—</td>`;
+        } else {
+          const suitClass = getSuitClass(BID_SUITS[entry.bidNum % 5]);
+          const isCurrent = entry.bidNum === s.bid;
+          html += `<td class="bt-bid ${suitClass}${isCurrent ? ' bt-current' : ''}">${getBidFromNum(entry.bidNum)}</td>`;
+        }
+      }
+      for (let k = rowEnd; k < i + 4; k++) html += '<td></td>';
+      html += '</tr>';
+    }
+
+    html += '</tbody></table>';
+    partnerHistEl.innerHTML = html;
+  } else if (partnerHistEl) {
+    partnerHistEl.innerHTML = '';
+  }
+
   $('partner-title').textContent = isBidder ? 'Select Partner Card' : 'Partner Selection';
   $('partner-status').textContent = isFullBoard
     ? '👁 Viewing all hands'
