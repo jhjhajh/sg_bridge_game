@@ -21,6 +21,18 @@
   <!-- Spectator bar (visible when spectators are present) -->
   <div id="spectator-bar" class="spectator-bar hidden"></div>
 
+  <!-- Betting widget (fixed banner for spectators during bidding) -->
+  <div id="betting-widget" class="betting-widget hidden">
+    <div class="betting-widget-inner">
+      <span class="betting-widget-label">🎲 Predict the outcome:</span>
+      <div id="betting-buttons" class="betting-buttons">
+        <button id="bet-win-btn" class="btn-bet btn-bet-win">Bidder Wins</button>
+        <button id="bet-lose-btn" class="btn-bet btn-bet-lose">Bidder Loses</button>
+      </div>
+      <div id="betting-result" class="betting-result hidden"></div>
+    </div>
+  </div>
+
   <!-- Reconnecting overlay -->
   <div id="overlay-reconnect" class="overlay hidden">
     <div class="overlay-content">
@@ -40,7 +52,6 @@
       <!-- Telegram login section (shown when not logged in) -->
       <div id="login-section">
         <div id="telegram-widget-container"></div>
-        <button id="btn-guest" class="btn btn-ghost">Continue as Guest</button>
       </div>
 
       <!-- Game section (shown after login or as guest) -->
@@ -253,6 +264,7 @@
       <div class="stats-tabs">
         <button class="stats-tab active" id="stats-tab-players" onclick="switchStatsTab('players')">Players</button>
         <button class="stats-tab" id="stats-tab-pairs" onclick="switchStatsTab('pairs')">Pairs</button>
+        <button class="stats-tab" id="stats-tab-betting" onclick="switchStatsTab('betting')">🎲 Betting</button>
       </div>
       <div class="stats-filter-bar">
         <span class="stats-filter-label">Min games:</span>

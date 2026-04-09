@@ -8,6 +8,7 @@ import { getUser, recordGroupResult } from './db';
 import { sendMessage, isChatMember } from './telegram';
 import { recordGameStats, recordEloUpdate, type EloResult } from './stats-db';
 import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
+import { settleBetsAndUpdateElo } from './betting-db';
 
 interface SessionInfo {
   playerId: string;
@@ -53,6 +54,11 @@ export class GameRoom extends DurableObject {
         ).catch(() => {});
       }
       return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/phase') {
+      const state = await this.getState();
+      return Response.json({ phase: state?.phase ?? null, gameId: state?.gameId ?? null });
     }
 
     const upgradeHeader = request.headers.get('Upgrade');
@@ -877,6 +883,7 @@ export class GameRoom extends DurableObject {
                   state.sets,
                   'bidder',
                 ),
+                settleBetsAndUpdateElo((this.env as Env).DB, state.gameId, true),
               ]).catch(() => {}),
             );
           }
@@ -969,6 +976,7 @@ export class GameRoom extends DurableObject {
                   state.sets,
                   'opponents',
                 ),
+                settleBetsAndUpdateElo((this.env as Env).DB, state.gameId, false),
               ]).catch(() => {}),
             );
           }

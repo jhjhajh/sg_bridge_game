@@ -3,6 +3,7 @@ import { verifyTelegramAuth, signJwt, verifyJwt } from './auth';
 import { upsertUser, getUser, updateDisplayName, getLeaderboard, upsertGroup, getGroupLeaderboard } from './db';
 import { sendMessage, parseUpdate } from './telegram';
 import { getPlayerStats, getPairStats } from './stats-db';
+import { placeBet, getUserBet, getBettingLeaderboard } from './betting-db';
 
 export { GameRoom } from './game-room';
 
@@ -268,6 +269,73 @@ export default {
         groupName: r.group_name,
       }));
       return Response.json(groups);
+    }
+
+    // --- Betting endpoints ---
+
+    // GET /api/betting/leaderboard
+    if (url.pathname === '/api/betting/leaderboard' && request.method === 'GET') {
+      const claims = await getAuthClaims(request, env.JWT_SECRET).catch(() => null);
+      const telegramId = claims ? Number(claims.sub) : undefined;
+      const data = await getBettingLeaderboard(env.DB, telegramId);
+      return Response.json(data);
+    }
+
+    // GET /api/betting/my-bet?room=XXXX
+    if (url.pathname === '/api/betting/my-bet' && request.method === 'GET') {
+      const claims = await getAuthClaims(request, env.JWT_SECRET);
+      if (!claims) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+      const room = url.searchParams.get('room');
+      if (!room) return Response.json({ error: 'Missing room' }, { status: 400 });
+
+      const stub = env.GAME_ROOM.getByName(room.toUpperCase());
+      const phaseRes = await stub.fetch(new Request('https://internal/phase'));
+      const { gameId } = await phaseRes.json<{ phase: string | null; gameId: string | null }>();
+
+      if (!gameId) return Response.json({ bet: null });
+
+      const bet = await getUserBet(env.DB, gameId, `tg_${claims.sub}`);
+      return Response.json({ bet });
+    }
+
+    // POST /api/betting/place
+    if (url.pathname === '/api/betting/place' && request.method === 'POST') {
+      const claims = await getAuthClaims(request, env.JWT_SECRET);
+      if (!claims) return Response.json({ error: 'Login required to bet' }, { status: 401 });
+
+      const body = await request.json<{ room: string; prediction: string; watchedSeat: number }>().catch(() => null);
+      if (!body?.room || !body.prediction) {
+        return Response.json({ error: 'Missing room or prediction' }, { status: 400 });
+      }
+      if (body.prediction !== 'win' && body.prediction !== 'lose') {
+        return Response.json({ error: 'prediction must be "win" or "lose"' }, { status: 400 });
+      }
+
+      const room = body.room.toUpperCase();
+      const stub = env.GAME_ROOM.getByName(room);
+      const phaseRes = await stub.fetch(new Request('https://internal/phase'));
+      const { phase, gameId } = await phaseRes.json<{ phase: string | null; gameId: string | null }>();
+
+      if (phase !== 'bidding') {
+        return Response.json({ error: 'Bets can only be placed during the bidding phase' }, { status: 409 });
+      }
+      if (!gameId) {
+        return Response.json({ error: 'Game not found' }, { status: 404 });
+      }
+
+      const displayName = claims.name ?? `tg_${claims.sub}`;
+      const result = await placeBet(
+        env.DB,
+        gameId,
+        `tg_${claims.sub}`,
+        displayName,
+        body.watchedSeat ?? -1,
+        body.prediction as 'win' | 'lose',
+      );
+
+      if (!result.ok) return Response.json({ error: result.reason }, { status: 409 });
+      return Response.json({ ok: true, gameId });
     }
 
     return new Response(null, { status: 404 });

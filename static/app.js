@@ -42,16 +42,22 @@ let lobbyCountdownTimer = null;
 let gameoverCountdownTimer = null;
 
 // Stats state
-let statsData = { players: [], pairs: [] };
+let statsData = { players: [], pairs: [], betting: null };
 let statsGroups = [];
 let statsTab = 'players';
 let statsMinGames = 3;
 let statsSort = { col: 'winPct', dir: 'desc' };
+let bettingSort = { col: 'bettingElo', dir: 'desc' };
 let statsGroupId = null;
 
 // Auth state
 let authToken = localStorage.getItem('authToken') || null;
 let authDisplayName = null; // name from /api/me, null for guests
+
+// Betting state
+let myBet = null;
+let myBetGameId = null;
+let myBetFetching = false;
 
 // --- DOM refs ---
 const $ = (id) => document.getElementById(id);
@@ -141,10 +147,12 @@ async function showStats() {
 async function loadStats() {
   const groupParam = statsGroupId ? `?groupId=${encodeURIComponent(statsGroupId)}` : '';
   try {
-    const [playersRes, pairsRes, groupsRes] = await Promise.all([
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const [playersRes, pairsRes, groupsRes, bettingRes] = await Promise.all([
       fetch(`/api/stats${groupParam}`),
       fetch(`/api/stats/pairs${groupParam}`),
       fetch('/api/groups'),
+      fetch('/api/betting/leaderboard', { headers }),
     ]);
     if (playersRes.ok) statsData.players = await playersRes.json();
     if (pairsRes.ok) statsData.pairs = await pairsRes.json();
@@ -152,6 +160,7 @@ async function loadStats() {
       statsGroups = await groupsRes.json();
       renderStatsGroupDropdown();
     }
+    if (bettingRes.ok) statsData.betting = await bettingRes.json();
   } catch {
     // network error — render with whatever we have
   }
@@ -180,6 +189,7 @@ function switchStatsTab(tab) {
   statsTab = tab;
   $('stats-tab-players')?.classList.toggle('active', tab === 'players');
   $('stats-tab-pairs')?.classList.toggle('active', tab === 'pairs');
+  $('stats-tab-betting')?.classList.toggle('active', tab === 'betting');
   renderStatsTab();
 }
 
@@ -204,9 +214,85 @@ function sortStats(col) {
 function renderStatsTab() {
   if (statsTab === 'players') {
     renderPlayersTab(statsData.players, statsMinGames, statsSort);
+  } else if (statsTab === 'betting') {
+    renderBettingTab(statsData.betting);
   } else {
     renderPairsTab(statsData.pairs, statsMinGames, statsSort);
   }
+}
+
+function sortBetting(col) {
+  if (bettingSort.col === col) {
+    bettingSort.dir = bettingSort.dir === 'desc' ? 'asc' : 'desc';
+  } else {
+    bettingSort.col = col;
+    bettingSort.dir = 'desc';
+  }
+  renderBettingTab(statsData.betting);
+}
+
+function renderBettingTab(data) {
+  const content = $('stats-content');
+  if (!content) return;
+
+  const top = data?.top ?? [];
+  const me = data?.me ?? null;
+
+  if (top.length === 0) {
+    content.innerHTML = '<p class="betting-tab-desc">Predict game outcomes during bidding to earn Bet ELO.</p><div class="betting-empty"><p class="stats-empty">No bettors on the leaderboard yet.</p></div>';
+    return;
+  }
+
+  const sortFns = {
+    bettingElo:  (r) => r.bettingElo,
+    totalBets:   (r) => r.totalBets,
+    correctBets: (r) => r.correctBets,
+    accuracyPct: (r) => r.accuracyPct,
+    displayName: (r) => r.displayName.toLowerCase(),
+  };
+  const fn = sortFns[bettingSort.col] ?? sortFns.bettingElo;
+  const sorted = [...top].sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    return bettingSort.dir === 'desc' ? (bv > av ? 1 : bv < av ? -1 : 0) : (av > bv ? 1 : av < bv ? -1 : 0);
+  });
+
+  const arrow = (col) => {
+    if (bettingSort.col !== col) return '<span class="sort-arrow">⇅</span>';
+    return `<span class="sort-arrow active">${bettingSort.dir === 'desc' ? '▼' : '▲'}</span>`;
+  };
+  const th = (col, label, left) =>
+    `<th class="stats-th${left ? ' stats-th-left' : ''}" onclick="sortBetting('${col}')">${label}${arrow(col)}</th>`;
+
+  let rows = sorted.map((r, i) => {
+    const medals = ['🥇', '🥈', '🥉'];
+    const rank = medals[i] || `#${r.rank}`;
+    return `<tr>
+      <td class="stats-td stats-td-left">${rank} ${esc(r.displayName)}</td>
+      <td class="stats-td">${r.bettingElo}</td>
+      <td class="stats-td">${r.totalBets}</td>
+      <td class="stats-td">${r.correctBets}</td>
+      <td class="stats-td">${r.accuracyPct}%</td>
+    </tr>`;
+  }).join('');
+
+  if (me) {
+    rows += `<tr class="lb-me-row"><td class="stats-td stats-td-left">You (#${me.rank})</td><td class="stats-td">${me.bettingElo}</td><td class="stats-td">${me.totalBets}</td><td class="stats-td">${me.correctBets}</td><td class="stats-td">${me.accuracyPct}%</td></tr>`;
+  }
+
+  content.innerHTML = `
+    <p class="betting-tab-desc">Predict game outcomes during bidding to earn Bet ELO.</p>
+    <div class="stats-table-wrap">
+      <table class="stats-table">
+        <thead><tr>
+          ${th('displayName', 'Bettor', true)}
+          ${th('bettingElo', 'Bet ELO')}
+          ${th('totalBets', 'Bets')}
+          ${th('correctBets', 'Correct')}
+          ${th('accuracyPct', 'Acc%')}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function renderPlayersTab(rows, minGames, sort) {
@@ -417,7 +503,7 @@ function showGameSection(name) {
       loadLeaderboard();
     });
   } else {
-    authStatus.textContent = 'Playing as guest';
+    authStatus.textContent = '';
   }
 
   // Show "Create game for <group>" button if the user was recently in a group lobby
@@ -860,6 +946,130 @@ function renderLastTrickPanel(s) {
   panel.appendChild(grid);
 }
 
+// --- Betting widget ---
+async function updateBettingWidget(s) {
+  const widget = $('betting-widget');
+  if (!widget) return;
+  const show = s.isSpectator && !!authToken && s.phase === 'bidding';
+  if (!show) {
+    widget.classList.add('hidden');
+    document.body.classList.remove('has-betting-widget');
+    return;
+  }
+  widget.classList.remove('hidden');
+  document.body.classList.add('has-betting-widget');
+
+  // Reset bet state when gameId changes
+  if (s.gameId && s.gameId !== myBetGameId) {
+    myBet = null;
+    myBetGameId = s.gameId;
+    myBetFetching = false;
+  }
+
+  renderBettingWidgetContent(s);
+
+  // Fetch existing bet once per game
+  if (!myBet && !myBetFetching && roomCode) {
+    myBetFetching = true;
+    try {
+      const res = await fetch(`/api/betting/my-bet?room=${encodeURIComponent(roomCode)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.bet) {
+          myBet = data.bet;
+          renderBettingWidgetContent(s);
+        }
+      }
+    } catch { /* silent */ } finally {
+      myBetFetching = false;
+    }
+  }
+}
+
+function renderBettingWidgetContent(s) {
+  const buttonsDiv = $('betting-buttons');
+  const resultDiv = $('betting-result');
+  if (!buttonsDiv || !resultDiv) return;
+
+  if (myBet) {
+    buttonsDiv.classList.add('hidden');
+    resultDiv.classList.remove('hidden');
+    const label = myBet.prediction === 'win' ? 'Bidder Wins' : 'Bidder Loses';
+    const correctLabel = myBet.correct === 1
+      ? '<span class="bet-correct">✓ Correct!</span>'
+      : myBet.correct === 0
+        ? '<span class="bet-wrong">✗ Wrong</span>'
+        : '<span class="bet-pending">Pending...</span>';
+    resultDiv.innerHTML = `<span class="bet-placed-label">Your bet: <strong>${label}</strong></span> ${correctLabel}`;
+  } else {
+    buttonsDiv.classList.remove('hidden');
+    resultDiv.classList.add('hidden');
+    const winBtn = $('bet-win-btn');
+    const loseBtn = $('bet-lose-btn');
+    if (winBtn) winBtn.disabled = false;
+    if (loseBtn) loseBtn.disabled = false;
+  }
+}
+
+async function submitBet(prediction) {
+  if (!authToken || !roomCode) return;
+  const winBtn = $('bet-win-btn');
+  const loseBtn = $('bet-lose-btn');
+  if (winBtn) winBtn.disabled = true;
+  if (loseBtn) loseBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/betting/place', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ room: roomCode, prediction, watchedSeat: gameState?.watchingSeat ?? -1 }),
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      myBet = { prediction, correct: null };
+      myBetGameId = data.gameId || myBetGameId;
+      renderBettingWidgetContent(gameState);
+    } else {
+      alert(data.error || 'Could not place bet.');
+      if (winBtn) winBtn.disabled = false;
+      if (loseBtn) loseBtn.disabled = false;
+    }
+  } catch {
+    alert('Network error placing bet.');
+    if (winBtn) winBtn.disabled = false;
+    if (loseBtn) loseBtn.disabled = false;
+  }
+}
+
+async function renderBetResult(s) {
+  if (!myBet || myBet.correct !== null) return;
+  if (!authToken || !roomCode) return;
+  try {
+    const res = await fetch(`/api/betting/my-bet?room=${encodeURIComponent(roomCode)}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.bet && data.bet.correct !== null) {
+        myBet = data.bet;
+        const widget = $('betting-widget');
+        if (widget) {
+          widget.classList.remove('hidden');
+          document.body.classList.add('has-betting-widget');
+          renderBettingWidgetContent(s);
+        }
+      }
+    }
+  } catch { /* silent */ }
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'bet-win-btn') submitBet('win');
+  if (e.target.id === 'bet-lose-btn') submitBet('lose');
+});
+
 // --- Render based on full state ---
 function togglePractice(id, isPractice) {
   const el = $(id);
@@ -885,6 +1095,8 @@ function renderPlayerStatusBar(container, players) {
 function renderState() {
   const s = gameState;
   if (!s) return;
+
+  updateBettingWidget(s);
 
   // Spectator hasn't chosen a player yet — show selection screen (only for unset, not for full board)
   if (s.isSpectator && s.watchingSeat === -1) {
@@ -1784,6 +1996,7 @@ function renderGameOver(s) {
   if (groupLbEl) groupLbEl.innerHTML = '';
   renderGameoverEloSection(s);
   renderPlayTimeToday(s);
+  renderBetResult(s);
 
   renderGameoverHands(s);
 
@@ -1856,6 +2069,12 @@ function leaveGame() {
   roomCode = null;
   gameState = null;
   lastGameOver = null;
+  myBet = null;
+  myBetGameId = null;
+  myBetFetching = false;
+  const widget = $('betting-widget');
+  if (widget) widget.classList.add('hidden');
+  document.body.classList.remove('has-betting-widget');
   sessionStorage.removeItem('roomCode');
   history.replaceState(null, '', location.pathname + location.search);
   $('overlay-reconnect').classList.add('hidden');
@@ -1874,18 +2093,7 @@ $('input-name').value = playerName;
 document.getElementById('login-section').classList.remove('hidden');
 document.getElementById('game-section').classList.add('hidden');
 
-document.getElementById('btn-guest').addEventListener('click', () => {
-  authToken = null;
-  authDisplayName = null;
-  showGameSection(null);
-});
-
-// On localhost, skip Telegram auth and go straight to guest mode
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-  showGameSection(null);
-} else {
-  initAuth();
-}
+initAuth();
 loadLeaderboard();
 
 $('btn-create').addEventListener('click', async () => {

@@ -1800,3 +1800,47 @@ body.has-spectators .screen {
   padding: 0.5rem 1rem 0.75rem;
   margin: 0;
 }
+
+/* --- Betting widget --- */
+.betting-widget {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-top: 2px solid #7c3aed;
+  padding: 10px 16px;
+}
+.betting-widget-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  max-width: 600px;
+  margin: 0 auto;
+}
+.betting-widget-label { font-size: 0.85rem; color: #a78bfa; white-space: nowrap; }
+.betting-buttons { display: flex; gap: 8px; }
+.btn-bet {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-bet:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-bet-win  { background: #16a34a; color: #fff; }
+.btn-bet-win:hover:not(:disabled)  { background: #15803d; }
+.btn-bet-lose { background: #dc2626; color: #fff; }
+.btn-bet-lose:hover:not(:disabled) { background: #b91c1c; }
+.betting-result { font-size: 0.85rem; }
+.bet-placed-label { color: #e2e8f0; }
+.bet-correct { color: #4ade80; font-weight: 600; }
+.bet-wrong   { color: #f87171; font-weight: 600; }
+.bet-pending { color: #94a3b8; }
+body.has-betting-widget { padding-bottom: 60px; }
+.betting-tab-desc { font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px; }
+.betting-empty { text-align: center; padding: 24px 0; }
