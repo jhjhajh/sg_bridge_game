@@ -217,7 +217,7 @@ export default {
       // Accept comma-separated telegram IDs (e.g. ?players=123,456,789)
       const playersParam = url.searchParams.get('players') ?? claims.sub;
       const telegramIds = playersParam.split(',').map(Number).filter((n) => n > 0);
-      if (telegramIds.length === 0) return Response.json({});
+      if (telegramIds.length === 0 || telegramIds.length > 8) return Response.json({});
       // Start of today in SGT (UTC+8)
       const SGT_OFFSET = 8 * 3600;
       const nowUnix = Math.floor(Date.now() / 1000);

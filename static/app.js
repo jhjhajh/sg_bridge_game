@@ -1618,8 +1618,9 @@ async function renderGameoverEloSection(s) {
 }
 
 function formatPlayTime(totalSeconds) {
-  const hrs = Math.floor(totalSeconds / 3600);
-  const mins = Math.ceil((totalSeconds % 3600) / 60);
+  const totalMins = Math.ceil(totalSeconds / 60);
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
   return hrs > 0 ? `${hrs}h ${mins}m` : `${mins || 1}m`;
 }
 
