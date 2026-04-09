@@ -1617,6 +1617,24 @@ async function renderGameoverEloSection(s) {
   }
 }
 
+async function renderPlayTimeToday() {
+  const el = $('gameover-play-time');
+  if (!el || !authToken) { if (el) el.classList.add('hidden'); return; }
+  try {
+    const res = await fetch('/api/play-time-today', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!res.ok) { el.classList.add('hidden'); return; }
+    const { totalSeconds } = await res.json();
+    if (totalSeconds <= 0) { el.classList.add('hidden'); return; }
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.ceil((totalSeconds % 3600) / 60);
+    const timeStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins || 1}m`;
+    el.innerHTML = `<span class="play-time-label">Today's play time</span> <span class="play-time-value">${timeStr}</span>`;
+    el.classList.remove('hidden');
+  } catch { el.classList.add('hidden'); }
+}
+
 function renderGameOver(s) {
   // If this player already pressed "Play Again", show the lobby waiting screen instead
   const iAmReady = !s.isSpectator && s.readySeats && s.readySeats.includes(s.mySeat);
@@ -1684,6 +1702,7 @@ function renderGameOver(s) {
   const groupLbEl = $('gameover-group-lb');
   if (groupLbEl) groupLbEl.innerHTML = '';
   renderGameoverEloSection(s);
+  renderPlayTimeToday();
 
   renderGameoverHands(s);
 
