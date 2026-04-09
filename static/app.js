@@ -1617,20 +1617,31 @@ async function renderGameoverEloSection(s) {
   }
 }
 
-async function renderPlayTimeToday() {
+function formatPlayTime(totalSeconds) {
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.ceil((totalSeconds % 3600) / 60);
+  return hrs > 0 ? `${hrs}h ${mins}m` : `${mins || 1}m`;
+}
+
+async function renderPlayTimeToday(s) {
   const el = $('gameover-play-time');
   if (!el || !authToken) { if (el) el.classList.add('hidden'); return; }
+  const tgIds = s.players.filter((p) => p.telegramId && !p.isBot).map((p) => p.telegramId);
+  if (tgIds.length === 0) { el.classList.add('hidden'); return; }
   try {
-    const res = await fetch('/api/play-time-today', {
+    const res = await fetch(`/api/play-time-today?players=${tgIds.join(',')}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     });
     if (!res.ok) { el.classList.add('hidden'); return; }
-    const { totalSeconds } = await res.json();
-    if (totalSeconds <= 0) { el.classList.add('hidden'); return; }
-    const hrs = Math.floor(totalSeconds / 3600);
-    const mins = Math.ceil((totalSeconds % 3600) / 60);
-    const timeStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins || 1}m`;
-    el.innerHTML = `<span class="play-time-label">Today's play time</span> <span class="play-time-value">${timeStr}</span>`;
+    const times = await res.json();
+    const rows = s.players
+      .filter((p) => p.telegramId && !p.isBot && (times[String(p.telegramId)] ?? 0) > 0)
+      .map((p) => {
+        const secs = times[String(p.telegramId)] ?? 0;
+        return `<div class="play-time-row"><span class="play-time-name">${esc(p.name)}</span><span class="play-time-value">${formatPlayTime(secs)}</span></div>`;
+      }).join('');
+    if (!rows) { el.classList.add('hidden'); return; }
+    el.innerHTML = `<div class="play-time-header">Today's play time</div>${rows}`;
     el.classList.remove('hidden');
   } catch { el.classList.add('hidden'); }
 }
@@ -1702,7 +1713,7 @@ function renderGameOver(s) {
   const groupLbEl = $('gameover-group-lb');
   if (groupLbEl) groupLbEl.innerHTML = '';
   renderGameoverEloSection(s);
-  renderPlayTimeToday();
+  renderPlayTimeToday(s);
 
   renderGameoverHands(s);
 

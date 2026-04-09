@@ -214,27 +214,37 @@ export default {
     if (url.pathname === '/api/play-time-today' && request.method === 'GET') {
       const claims = await getAuthClaims(request, env.JWT_SECRET);
       if (!claims) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      const telegramId = Number(claims.sub);
+      // Accept comma-separated telegram IDs (e.g. ?players=123,456,789)
+      const playersParam = url.searchParams.get('players') ?? claims.sub;
+      const telegramIds = playersParam.split(',').map(Number).filter((n) => n > 0);
+      if (telegramIds.length === 0) return Response.json({});
       // Start of today in SGT (UTC+8)
       const SGT_OFFSET = 8 * 3600;
       const nowUnix = Math.floor(Date.now() / 1000);
       const startOfDay = nowUnix - ((nowUnix + SGT_OFFSET) % 86400);
-      const row = await env.DB
+      const placeholders = telegramIds.map(() => '?').join(',');
+      const rows = await env.DB
         .prepare(
-          `SELECT COALESCE(SUM(gm.played_at - gh.start_time), 0) AS total_seconds
+          `SELECT gr.telegram_id, COALESCE(SUM(gm.played_at - gh.start_time), 0) AS total_seconds
            FROM (
-             SELECT DISTINCT game_id FROM game_records WHERE telegram_id = ?
+             SELECT DISTINCT game_id, telegram_id
+             FROM game_records WHERE telegram_id IN (${placeholders})
            ) gr
            JOIN game_metadata gm ON gm.game_id = gr.game_id AND gm.played_at >= ?
            JOIN (
              SELECT game_id, MIN(played_at) AS start_time
              FROM game_hands WHERE played_at >= ?
              GROUP BY game_id
-           ) gh ON gh.game_id = gr.game_id`,
+           ) gh ON gh.game_id = gr.game_id
+           GROUP BY gr.telegram_id`,
         )
-        .bind(telegramId, startOfDay, startOfDay)
-        .first<{ total_seconds: number }>();
-      return Response.json({ totalSeconds: row?.total_seconds ?? 0 });
+        .bind(...telegramIds, startOfDay, startOfDay)
+        .all<{ telegram_id: number; total_seconds: number }>();
+      const result: Record<string, number> = {};
+      for (const r of rows.results ?? []) {
+        result[String(r.telegram_id)] = r.total_seconds;
+      }
+      return Response.json(result);
     }
 
     if (url.pathname === '/api/stats' && request.method === 'GET') {

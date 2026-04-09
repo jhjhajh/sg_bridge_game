@@ -304,6 +304,7 @@ export class GameRoom extends DurableObject {
         botLevel: p.botLevel,
         isGroupMember: p.isGroupMember,
         elo: p.elo,
+        telegramId: p.id.startsWith('tg_') ? Number(p.id.slice(3)) : undefined,
       })),
       hand: !isFullBoard && mySeat >= 0 && state.hands.length > 0 ? state.hands[mySeat] : null,
       allHands: isFullBoard && state.hands.length > 0 ? state.hands : null,

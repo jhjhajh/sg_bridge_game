@@ -1023,12 +1023,20 @@ body.has-spectators .screen {
 }
 #gameover-detail { color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem; line-height: 1.5; }
 .play-time-section {
-  text-align: center; padding: 0.5rem 1rem; margin-bottom: 1rem;
+  padding: 0.5rem 1rem; margin-bottom: 1rem;
   font-size: 0.8rem; color: var(--text-dimmer);
   background: rgba(255,255,255,0.03); border-radius: var(--radius-sm);
   border: 1px solid rgba(255,255,255,0.05);
 }
-.play-time-label { margin-right: 0.4rem; }
+.play-time-header {
+  font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-dimmer); margin-bottom: 0.4rem;
+}
+.play-time-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.25rem 0;
+}
+.play-time-name { color: var(--text-dim); }
 .play-time-value { font-weight: 600; color: var(--text-dim); }
 .elo-delta-section { margin-bottom: 1.25rem; }
 .elo-delta-section .section-label {
