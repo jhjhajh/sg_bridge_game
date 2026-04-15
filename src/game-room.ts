@@ -190,6 +190,12 @@ export class GameRoom extends DurableObject {
     const player = state.players.find((p) => p.id === session.playerId);
     if (player) {
       player.connected = false;
+      // Track disconnect time only during bidding or play
+      if (state.phase === 'bidding' || state.phase === 'play') {
+        state.disconnectTimers[player.seat] = Date.now();
+        // Set alarm to check for bot replacement after 3 minutes (180000ms)
+        await this.ctx.storage.setAlarm(Date.now() + 180000);
+      }
       await this.saveState(state);
       this.broadcast({
         type: 'playerDisconnected',
@@ -226,6 +232,45 @@ export class GameRoom extends DurableObject {
       await this.saveState(state);
       await this.ctx.storage.setAlarm(Date.now() + 5 * 60 * 1000);
       return;
+    }
+
+    // Bot replacement alarm — check if any disconnected players need bot takeover
+    if (state.phase === 'bidding' || state.phase === 'play') {
+      const now = Date.now();
+      const botReplacementThreshold = 180000; // 3 minutes in milliseconds
+      let needsSave = false;
+
+      for (const [seatStr, disconnectTime] of Object.entries(state.disconnectTimers)) {
+        const seat = Number(seatStr);
+        const player = state.players[seat];
+
+        if (!player) continue;
+        if (player.isBot) continue; // Already a bot
+        if (player.connected) continue; // Reconnected
+
+        // Check if 3 minutes have passed since disconnect
+        if (now - disconnectTime >= botReplacementThreshold) {
+          // Replace with sophisticated bot
+          const originalPlayerId = player.id;
+          const playerName = player.name;
+          player.id = `bot_replacement_${Date.now()}_${seat}`;
+          player.isBot = true;
+          player.botLevel = 'sophisticated';
+          player.originalPlayerId = originalPlayerId;
+          needsSave = true;
+
+          // Broadcast replacement
+          this.broadcast({
+            type: 'playerDisconnected', // Reuse existing message type
+            seat,
+            name: playerName,
+          });
+        }
+      }
+
+      if (needsSave) {
+        await this.saveState(state);
+      }
     }
 
     // Inactivity cleanup alarm
@@ -272,6 +317,7 @@ export class GameRoom extends DurableObject {
       initialHands: [],
       origin,
       pingCooldowns: {},
+      disconnectTimers: {},
     };
   }
 
@@ -443,11 +489,34 @@ export class GameRoom extends DurableObject {
     if (existing) {
       existing.name = name;
       existing.connected = true;
+      // Clear disconnect timer when player reconnects
+      delete state.disconnectTimers[existing.seat];
       await this.refreshPlayerStats(existing, playerId);
       await this.saveState(state);
       ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
       this.broadcastExcept(
         { type: 'playerReconnected', seat: existing.seat, name: existing.name },
+        playerId,
+      );
+      return;
+    }
+
+    // Check if a bot is currently replacing this player (they're rejoining mid-game)
+    const botReplacement = state.players.find((p) => p.originalPlayerId === playerId);
+    if (botReplacement && (state.phase === 'bidding' || state.phase === 'play')) {
+      // Player rejoins and takes over from bot — update bot's originalPlayerId and mark as not-bot
+      botReplacement.id = playerId;
+      botReplacement.isBot = false;
+      botReplacement.botLevel = undefined;
+      botReplacement.originalPlayerId = undefined;
+      botReplacement.connected = true;
+      // Clear disconnect timer
+      delete state.disconnectTimers[botReplacement.seat];
+      await this.refreshPlayerStats(botReplacement, playerId);
+      await this.saveState(state);
+      ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
+      this.broadcastExcept(
+        { type: 'playerReconnected', seat: botReplacement.seat, name: botReplacement.name },
         playerId,
       );
       return;

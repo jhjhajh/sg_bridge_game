@@ -868,6 +868,23 @@ function handleMessage(msg) {
       // Show notification when someone is pinged
       showConnectionToast(`${msg.pinger} pinged ${gameState?.players.find(p => p.seat === msg.seat)?.name || 'a player'}`);
       break;
+    case 'abandonVoteStarted':
+      showConnectionToast(`${msg.initiatorName} initiated an abandon vote`);
+      break;
+    case 'abandonVotePrompt':
+      showAbandonVotePrompt(msg.timeoutSeconds);
+      break;
+    case 'abandonVotePassed':
+      showConnectionToast('Game abandoned by vote - returning to lobby');
+      if (gameState) {
+        gameState.phase = 'lobby';
+        renderState();
+      }
+      break;
+    case 'abandonVoteFailed':
+      const rejectName = msg.rejectSeat >= 0 ? gameState?.players[msg.rejectSeat]?.name : msg.rejectName;
+      showConnectionToast(`${rejectName} rejected the abandon vote`);
+      break;
   }
 }
 
@@ -880,6 +897,55 @@ function showConnectionToast(text) {
     div.classList.add('fade-out');
     setTimeout(() => div.remove(), 400);
   }, 3000);
+}
+
+function showAbandonVotePrompt(timeoutSeconds) {
+  // Create modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000;';
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:rgba(20,10,40,0.95);border:1px solid rgba(139,92,246,0.5);border-radius:12px;padding:2rem;text-align:center;max-width:400px;color:#d4a843;';
+
+  modal.innerHTML = `
+    <h3 style="margin:0 0 1rem 0;color:#d4a843;">Abandon Game?</h3>
+    <p style="margin:0 0 1.5rem 0;color:rgba(255,255,255,0.8);">Vote to end the current deal and return to lobby<br>(${timeoutSeconds}s timeout)</p>
+    <div style="display:flex;gap:1rem;justify-content:center;">
+      <button class="btn btn-primary" id="vote-yes" style="flex:1;">Yes, Abandon</button>
+      <button class="btn btn-secondary" id="vote-no" style="flex:1;">No, Continue</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  let responded = false;
+
+  const yesBtn = modal.querySelector('#vote-yes');
+  const noBtn = modal.querySelector('#vote-no');
+
+  const cleanup = () => {
+    if (overlay.parentNode) overlay.remove();
+  };
+
+  const respond = (accept) => {
+    if (responded) return;
+    responded = true;
+    send({ type: 'respondAbandon', accept });
+    cleanup();
+  };
+
+  yesBtn.addEventListener('click', () => respond(true));
+  noBtn.addEventListener('click', () => respond(false));
+
+  // Auto-close after timeout + 2 seconds (server handles auto-accept)
+  setTimeout(() => {
+    if (!responded) {
+      responded = true;
+      cleanup();
+    }
+  }, (timeoutSeconds + 2) * 1000);
 }
 
 function animateTrickWon(msg) {
@@ -1107,11 +1173,23 @@ function renderPlayerStatusBar(container, players, enablePing = false) {
   }
 }
 
+function updateLeaveButtonLabel() {
+  const btn = $('btn-leave-global');
+  if (!btn || !gameState) return;
+
+  if (gameState.phase === 'bidding' || gameState.phase === 'play') {
+    btn.textContent = 'Abandon';
+  } else {
+    btn.textContent = 'Leave';
+  }
+}
+
 function renderState() {
   const s = gameState;
   if (!s) return;
 
   updateBettingWidget(s);
+  updateLeaveButtonLabel();
 
   // Spectator hasn't chosen a player yet — show selection screen (only for unset, not for full board)
   if (s.isSpectator && s.watchingSeat === -1) {
@@ -2262,9 +2340,11 @@ $('btn-play-again').addEventListener('click', () => {
 });
 
 $('btn-leave-global').addEventListener('click', () => {
-  if (gameState && gameState.phase !== 'lobby') {
-    if (confirm('Leave the current game?')) leaveGame();
+  if (gameState && (gameState.phase === 'bidding' || gameState.phase === 'play')) {
+    // Initiate abandon vote during bidding/play
+    send({ type: 'initiateAbandon' });
   } else {
+    // Direct leave in lobby, partner, gameover phases
     leaveGame();
   }
 });

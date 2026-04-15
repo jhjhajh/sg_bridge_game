@@ -1,83 +1,63 @@
-# Next tasks (requirement specs)
+---
 
-## SPEC — Lobby: player vs spectator on join (invite link)
+## SPEC — Disconnect / leave: Bot takeover after 3 minutes, rejoin, and rated override
 
 ### Goal
 
-Anyone entering the room via **invite link** must **explicitly choose** **Player** (take a seat) or **Spectator** before entering the lobby experience, so status is never ambiguous.
+1. **Bot takeover (after 3 minutes):** When a seated human **disconnects or leaves** during **`bidding`** or **`play`**, the seat **remains empty for 3 continuous minutes**. If the player has not rejoined by then, a **sophisticated** bot immediately replaces that seat and continues the game on their behalf (same game id).
+2. **Rejoin and takeover:** If the original player **rejoins before the game ends** (either before or after bot takeover), they can **immediately take over the seat** from the bot and resume playing.
+3. **Elo attribution:** **Whoever finishes the game** (bot or player) — the **original player** gets the Elo result (win/loss). The result is based purely on the game outcome. **No penalty** for abandonment; the player just plays (via bot or themselves) until the deal ends.
+4. **Rated override:** If the game **began** as **1 bot + 3 humans** and **one human** drops (so the table becomes **2 bots + 2 humans**), the match remains **rated** — i.e. do **not** downgrade to practice solely because the bot count increased mid-game.
+
+### Scope (phases)
+
+- Applies when phase is **`bidding`** or **`play`** (not lobby-only disconnect unless extended later).
+- Timer / takeover logic should be **server-authoritative** (Durable Object).
+- **Leave button** shows confirmation prompt during bidding/play informing them the seat will be taken over by a bot after 3 minutes of disconnect.
 
 ### Acceptance
 
-- Invite / deep-link flow shows a **modal or step**: “Join as player” vs “Join as spectator” (copy can be tuned).
-- Choice is persisted for that session / reconnect where applicable.
+- Bot substitution uses the **sophisticated** bot profile (not basic/intermediate) for the taken-over seat.
+- Bot plays with **incomplete information** — it does not see cards of the original player's hand; it makes decisions based only on public board state.
+- **Elo attribution:** The game result (win/loss) is recorded under the **original player's ID**, regardless of whether the bot or player finished the deal. **Bots do not earn Elo**.
+- `isPractice` is computed from **composition at deal start**, so mid-game bot substitution does **not** flip a rated game to practice.
+- Rejoining player **immediately replaces the bot** and resumes from the current game state.
 
-### Open questions
+### Clarified Requirements
 
-- If all four seats are full, should “Join as player” be disabled with explanation, or queue?
+- **Disconnect vs Leave:** Same treatment for explicit **Leave** button and socket drop.
+- **Continuous 3 minutes:** Must be continuous disconnect; if they rejoin within 3 minutes, no bot takeover occurs (timer resets).
+- **Lobby disconnect:** No bot takeover; this rule applies only to bidding/play phases.
+- **No penalty:** The player simply plays via bot and receives the game result. No additional penalties or bonuses.
 
 ---
 
-## SPEC — Lobby: start only when all seats connected
+## SPEC — “Abandon” (replaces top-right Leave during deal)
 
 ### Goal
 
-The match **must not** auto-advance from lobby until **every seated player** is in **connected** state (WebSocket live).
+During **`bidding`** or **`play`**, allow a **seated player to initiate an abandon vote** to end the current deal early and return all players to the lobby. The vote is **visible to all seated players** (spectators can view but do not vote).
+
+### Flow
+
+1. Player A clicks **Abandon** → server starts an **abandon vote** **visible to all seated players**.
+2. **Each connected human player** (not bots) gets a prompt: **OK** (agree to abandon) or **No** (reject).
+3. **Unanimous OK from all connected humans:** The current deal **ends without normal finish**, move **everyone** back to **game lobby** (same room code). The hand is **void** — no Elo result recorded for anyone (no penalty, no win/loss).
+4. **Any No:** vote **cancels**, game **continues** unchanged.
+5. **Timeout:** If a player doesn't respond within **1 minute**, vote **auto-accepts** for them (vote proceeds as if they said OK).
 
 ### Acceptance
 
-- “Start” / transition to bidding (or next phase) is blocked until `connected === true` for all four seats (or document rule if bots count as always connected).
-- UI shows who is still connecting (optional but useful).
+- Only one abandon proposal at a time; stale proposals invalidated if phase changes.
+- **Bots do not vote**; they don't block a vote and don't count toward quorum.
+- **Spectators see the vote UI but do not vote** — they are read-only observers.
+- **Quorum:** Only **connected human players** must vote unanimously; disconnected players do not block the vote.
+- **Elo:** Abandoned hand is **void** — no rated result, no penalty, no delta for anyone.
+- Server-authoritative: clients cannot force lobby without Durable Object agreement.
 
----
+### Clarified Requirements
 
-## SPEC — Kick: allow while waiting on “Play again”
-
-### Goal
-
-Players who **have not** pressed **Play again** after game over should **still** be kickable from the lobby (same as others). Today kick may be gated on ready state — remove that asymmetry.
-
-### Acceptance
-
-- Kick / remove-seat works for any occupied seat in lobby regardless of `readySeats` / play-again acknowledgement.
-- Document edge case: mid-rematch if one person never readies.
-
----
-
-## SPEC — Clickable names → Telegram @ ping (lobby + bidding)
-
-### Goal
-
-On **game lobby** and **bidding** screens, **player names** are **clickable**. Click sends a **Telegram @ mention** to ping that player (room must be linked to a Telegram group / bot as today).
-
-### Rate limit
-
-- **Per target player:** at most one successful ping every **10 seconds** (cooldown is per **recipient**, not global).
-- **Per clicker:** can ping **up to 3 other players** (not self); after using all three, each of those three cooldowns ticks independently — after 10s from each ping, that recipient can be pinged again (so “10 sec later tag 3 of them again” = per-recipient 10s cooldown).
-
-### Acceptance
-
-- Cooldown is enforced **server-side** so clients cannot spam.
-- Disabled state or toast when on cooldown; never @ self.
-
-### Open questions
-
-- If room is **not** Telegram-linked, hide links or show “Link Telegram group” only?
-
----
-
-## SPEC — Spectator chat on game table
-
-### Goal
-
-- **Spectators** who send chat during **play** see their messages as **bubbles** in the same chat UI as players (or clearly unified thread).
-- Add a **chat area fixed at the bottom** of the page during play (and optionally other phases) so input is always reachable.
-
-### Acceptance
-
-- Spectator messages appear in-thread with correct sender label (e.g. “Spectator: Name”).
-- Layout: bottom chat strip does not obscure critical table controls; scrollback works.
-
-### Open questions
-
-- Should spectators be **read-only** until play starts, or chat anytime in lobby too?
+- **Outside bidding/play (lobby):** The button label remains **Leave** (no vote; instant exit).
+- **During bidding/play:** Button label is **Abandon** (triggers vote flow above).
+- **Leave vs disconnect:** This spec handles the **explicit Abandon button**. Disconnects are handled separately (see bot takeover spec above).
 

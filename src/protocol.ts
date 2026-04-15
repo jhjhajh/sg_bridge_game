@@ -14,7 +14,9 @@ export type ClientMessage =
   | { type: 'kickPlayer'; seat: number }
   | { type: 'startGame' }
   | { type: 'chat'; text: string }
-  | { type: 'pingPlayer'; seat: number };
+  | { type: 'pingPlayer'; seat: number }
+  | { type: 'initiateAbandon' }
+  | { type: 'respondAbandon'; accept: boolean };
 
 export type ServerMessage =
   | { type: 'state'; state: PlayerGameView }
@@ -36,4 +38,8 @@ export type ServerMessage =
   | { type: 'kicked'; reason: string }
   | { type: 'playerKicked'; seat: number; name: string }
   | { type: 'chat'; name: string; seat: number; text: string }
-  | { type: 'playerPinged'; pinger: string; seat: number };
+  | { type: 'playerPinged'; pinger: string; seat: number }
+  | { type: 'abandonVoteStarted'; initiatorSeat: number; initiatorName: string }
+  | { type: 'abandonVotePassed' }
+  | { type: 'abandonVoteFailed'; rejectSeat: number; rejectName: string }
+  | { type: 'abandonVotePrompt'; timeoutSeconds: number };

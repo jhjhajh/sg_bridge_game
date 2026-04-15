@@ -21,6 +21,7 @@ export interface Player {
   botLevel?: 'basic' | 'intermediate' | 'advanced' | 'sophisticated';
   isGroupMember?: boolean;
   elo?: number;
+  originalPlayerId?: string; // If this bot is replacing a human, store the original player's ID
 }
 
 export interface TrickRecord {
@@ -81,6 +82,13 @@ export interface GameState {
   initialHands: Hand[];
   origin: string | null;
   pingCooldowns: { [seat: number]: number }; // timestamp of last ping per recipient seat
+  disconnectTimers: { [seat: number]: number }; // timestamp when player disconnected (0 if connected)
+  abandonVote?: {
+    initiatorSeat: number;
+    initiatorId: string;
+    votes: { [seat: number]: boolean | null }; // true=yes, false=no, null=no response yet
+    expiresAt: number; // timestamp when vote expires (1 minute timeout)
+  };
 }
 
 export interface PlayerGameView {

@@ -22,8 +22,10 @@ export async function recordGameResult(
 ): Promise<void> {
   await Promise.all(
     players.map((player) => {
-      if (!player.id.startsWith('tg_')) return Promise.resolve();
-      const telegramId = Number(player.id.slice(3));
+      // Use originalPlayerId if this is a bot replacement, otherwise use player.id
+      const playerId = player.originalPlayerId || player.id;
+      if (!playerId.startsWith('tg_')) return Promise.resolve();
+      const telegramId = Number(playerId.slice(3));
       const won = winnerSeats.includes(player.seat) ? 1 : 0;
       return db
         .prepare(
