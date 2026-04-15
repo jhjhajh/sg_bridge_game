@@ -174,6 +174,12 @@ export class GameRoom extends DurableObject {
       case 'pingPlayer':
         await this.handlePingPlayer(state, session.playerId, msg.seat, ws);
         break;
+      case 'initiateAbandon':
+        await this.handleInitiateAbandon(state, session.playerId, ws);
+        break;
+      case 'respondAbandon':
+        await this.handleRespondAbandon(state, session.playerId, msg.accept);
+        break;
     }
   }
 
@@ -193,8 +199,12 @@ export class GameRoom extends DurableObject {
       // Track disconnect time only during bidding or play
       if (state.phase === 'bidding' || state.phase === 'play') {
         state.disconnectTimers[player.seat] = Date.now();
-        // Set alarm to check for bot replacement after 3 minutes (180000ms)
-        await this.ctx.storage.setAlarm(Date.now() + 180000);
+        // Set alarm for bot replacement only if no sooner alarm is already scheduled
+        const botAlarmAt = Date.now() + 180000;
+        const existingAlarm = await this.ctx.storage.getAlarm();
+        if (!existingAlarm || existingAlarm > botAlarmAt) {
+          await this.ctx.storage.setAlarm(botAlarmAt);
+        }
       }
       await this.saveState(state);
       this.broadcast({
@@ -206,7 +216,12 @@ export class GameRoom extends DurableObject {
 
     const anyConnected = state.players.some((p) => p.connected);
     if (!anyConnected && !state.gameStartAt) {
-      await this.ctx.storage.setAlarm(Date.now() + 5 * 60 * 1000);
+      // Only override with inactivity alarm if no bot-replacement alarm is pending
+      const existingAlarm = await this.ctx.storage.getAlarm();
+      const inactivityAlarmAt = Date.now() + 5 * 60 * 1000;
+      if (!existingAlarm || existingAlarm > inactivityAlarmAt) {
+        await this.ctx.storage.setAlarm(inactivityAlarmAt);
+      }
     }
   }
 
@@ -252,24 +267,68 @@ export class GameRoom extends DurableObject {
         if (now - disconnectTime >= botReplacementThreshold) {
           // Replace with sophisticated bot
           const originalPlayerId = player.id;
-          const playerName = player.name;
           player.id = `bot_replacement_${Date.now()}_${seat}`;
           player.isBot = true;
           player.botLevel = 'sophisticated';
           player.originalPlayerId = originalPlayerId;
+          delete state.disconnectTimers[seat]; // Clean up timer
           needsSave = true;
-
-          // Broadcast replacement
-          this.broadcast({
-            type: 'playerDisconnected', // Reuse existing message type
-            seat,
-            name: playerName,
-          });
         }
       }
 
       if (needsSave) {
         await this.saveState(state);
+        // Push full state so clients see bot icons and names update
+        this.broadcastFullState(state);
+        // Trigger bot to act immediately if it's their turn
+        this.ctx.waitUntil(this.scheduleBotAction());
+      }
+
+      // Re-schedule alarm for any remaining pending disconnect timers
+      const pendingTimers = Object.values(state.disconnectTimers);
+      if (pendingTimers.length > 0) {
+        const nextAlarmAt = Math.min(...pendingTimers) + botReplacementThreshold;
+        await this.ctx.storage.setAlarm(nextAlarmAt);
+        return;
+      }
+    }
+
+    // Abandon vote timeout — auto-accept after 1 minute
+    if (state.abandonVote && Date.now() >= state.abandonVote.expiresAt) {
+      const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
+
+      // Auto-accept any unresponded votes
+      connectedHumans.forEach((p) => {
+        if (state.abandonVote!.votes[p.seat] === null) {
+          state.abandonVote!.votes[p.seat] = true;
+        }
+      });
+
+      // Check if all have voted and all accepted
+      const allAccepted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] === true);
+
+      if (allAccepted) {
+        // Unanimous yes — end game
+        state.abandonVote = undefined;
+        await this.endGameWithAbandon(state);
+        return;
+      } else {
+        // Some rejected or timed out as no — cancel vote
+        state.abandonVote = undefined;
+        await this.saveState(state);
+        this.broadcast({
+          type: 'abandonVoteFailed',
+          rejectSeat: -1,
+          rejectName: 'Timeout',
+        });
+      }
+
+      // After handling the vote, re-schedule alarm for any pending bot-replacement timers
+      const pendingTimers = Object.values(state.disconnectTimers);
+      if (pendingTimers.length > 0 && (state.phase === 'bidding' || state.phase === 'play')) {
+        const nextAlarmAt = Math.min(...pendingTimers) + 180000;
+        await this.ctx.storage.setAlarm(nextAlarmAt);
+        return;
       }
     }
 
@@ -2733,6 +2792,120 @@ export class GameRoom extends DurableObject {
 
     // Broadcast notification to all players
     this.broadcast({ type: 'playerPinged', pinger: pinger.name, seat: targetSeat });
+  }
+
+  private async handleInitiateAbandon(state: GameState, initiatorId: string, ws: WebSocket): Promise<void> {
+    // Only allow in bidding or play phases
+    if (state.phase !== 'bidding' && state.phase !== 'play') {
+      ws.send(JSON.stringify({ type: 'error', message: 'Can only abandon during bidding or play.' }));
+      return;
+    }
+
+    // Can't initiate if a vote is already in progress
+    if (state.abandonVote) {
+      ws.send(JSON.stringify({ type: 'error', message: 'An abandon vote is already in progress.' }));
+      return;
+    }
+
+    const initiator = state.players.find((p) => p.id === initiatorId);
+    if (!initiator) return;
+
+    // Create vote state — only connected humans vote; initiator auto-votes yes
+    const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
+    const votes: { [seat: number]: boolean | null } = {};
+    connectedHumans.forEach((p) => {
+      votes[p.seat] = p.seat === initiator.seat ? true : null; // initiator auto-votes yes
+    });
+
+    // If initiator is the only connected human, abandon immediately
+    const allAcceptedAlready = connectedHumans.every((p) => votes[p.seat] === true);
+    if (allAcceptedAlready) {
+      await this.endGameWithAbandon(state);
+      return;
+    }
+
+    state.abandonVote = {
+      initiatorSeat: initiator.seat,
+      initiatorId: initiatorId,
+      votes,
+      expiresAt: Date.now() + 60000, // 1 minute timeout
+    };
+
+    await this.saveState(state);
+    // Set vote timeout alarm only if no sooner alarm is already scheduled (don't stomp bot-replacement alarms)
+    const voteAlarmAt = Date.now() + 60000;
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (!existingAlarm || existingAlarm > voteAlarmAt) {
+      await this.ctx.storage.setAlarm(voteAlarmAt);
+    }
+
+    // Notify all players
+    this.broadcast({
+      type: 'abandonVoteStarted',
+      initiatorSeat: initiator.seat,
+      initiatorName: initiator.name,
+    });
+
+    // Send vote prompt to each connected human except the initiator (who already voted yes)
+    connectedHumans.forEach((player) => {
+      if (player.seat === initiator.seat) return;
+      this.sessions.forEach((session, playerWs) => {
+        if (session.playerId === player.id) {
+          playerWs.send(JSON.stringify({ type: 'abandonVotePrompt', timeoutSeconds: 60 }));
+        }
+      });
+    });
+  }
+
+  private async handleRespondAbandon(state: GameState, voterId: string, accept: boolean): Promise<void> {
+    if (!state.abandonVote) return;
+
+    const voter = state.players.find((p) => p.id === voterId);
+    if (!voter || voter.isBot) return;
+
+    // Record vote
+    state.abandonVote.votes[voter.seat] = accept;
+
+    // If any voter rejects, vote fails immediately
+    if (!accept) {
+      const rejector = voter;
+      state.abandonVote = undefined;
+      await this.saveState(state);
+      this.broadcast({
+        type: 'abandonVoteFailed',
+        rejectSeat: rejector.seat,
+        rejectName: rejector.name,
+      });
+      return;
+    }
+
+    // Check if all connected humans have voted
+    const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
+    const allVoted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] !== null);
+    const allAccepted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] === true);
+
+    if (allVoted && allAccepted) {
+      // Unanimous yes — end game and return to lobby
+      state.abandonVote = undefined;
+      await this.endGameWithAbandon(state);
+      return;
+    }
+
+    await this.saveState(state);
+  }
+
+  private async endGameWithAbandon(state: GameState): Promise<void> {
+    // Hand is void — no Elo recorded, just return to lobby
+    state.phase = 'lobby';
+    state.readySeats = [];
+    await this.saveState(state);
+
+    this.broadcast({
+      type: 'abandonVotePassed',
+    });
+
+    // Send updated state to all clients
+    this.broadcastFullState(state);
   }
 
   private async handleStartGame(state: GameState, requestorId: string): Promise<void> {
