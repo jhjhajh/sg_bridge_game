@@ -128,7 +128,7 @@ export class GameRoom extends DurableObject {
 
     switch (msg.type) {
       case 'join':
-        await this.handleJoin(state, session.playerId, msg.name, ws);
+        await this.handleJoin(state, session.playerId, msg.name, msg.joinAs, ws);
         break;
       case 'bid':
         await this.handleBid(state, session.playerId, msg.bidNum);
@@ -170,6 +170,9 @@ export class GameRoom extends DurableObject {
         break;
       case 'chat':
         this.handleChat(state, session.playerId, msg.text);
+        break;
+      case 'pingPlayer':
+        await this.handlePingPlayer(state, session.playerId, msg.seat, ws);
         break;
     }
   }
@@ -268,6 +271,7 @@ export class GameRoom extends DurableObject {
       trickWinners: [],
       initialHands: [],
       origin,
+      pingCooldowns: {},
     };
   }
 
@@ -428,6 +432,7 @@ export class GameRoom extends DurableObject {
     state: GameState,
     playerId: string,
     name: string,
+    joinAs: 'player' | 'spectator' | undefined,
     ws: WebSocket,
   ): Promise<void> {
     if (!playerId.startsWith('tg_')) {
@@ -464,8 +469,11 @@ export class GameRoom extends DurableObject {
       return;
     }
 
-    if (state.players.length >= NUM_PLAYERS) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
+    // If explicitly joining as spectator, or all seats full, join as spectator
+    if (joinAs === 'spectator' || state.players.length >= NUM_PLAYERS) {
+      state.spectators.push({ id: playerId, name, watchingSeat: -1 });
+      await this.saveState(state);
+      ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
       return;
     }
 
@@ -2510,7 +2518,8 @@ export class GameRoom extends DurableObject {
   }
 
   private async handleKickPlayer(state: GameState, requestorId: string, targetSeat: number): Promise<void> {
-    if (state.phase !== 'lobby') return;
+    // Allow kicks in lobby or game-over (play-again waiting) phases
+    if (state.phase !== 'lobby' && state.phase !== 'gameover') return;
     const requestor = state.players.find((p) => p.id === requestorId);
     if (!requestor || !requestor.connected) return;
     if (requestor.seat === targetSeat) return; // can't kick yourself
@@ -2535,6 +2544,9 @@ export class GameRoom extends DurableObject {
     // Remove kicked player and re-index seats
     state.players = state.players.filter((p) => p.seat !== targetSeat);
     state.players.forEach((p, i) => { p.seat = i; });
+
+    // Remove from readySeats if they were ready (for gameover phase)
+    state.readySeats = state.readySeats.filter((seat) => seat !== targetSeat);
 
     // Cancel countdown if active
     if (state.gameStartAt !== null) {
@@ -2583,7 +2595,75 @@ export class GameRoom extends DurableObject {
     if (!sender) return;
     const clean = String(text).trim().slice(0, 200);
     if (!clean) return;
-    this.broadcast({ type: 'chat', name: sender.name, seat: player?.seat ?? -1, text: clean });
+    const isSpectator = !player;
+    const displayName = isSpectator ? `Spectator: ${sender.name}` : sender.name;
+    this.broadcast({ type: 'chat', name: displayName, seat: player?.seat ?? -1, text: clean });
+  }
+
+  private async handlePingPlayer(state: GameState, pingerId: string, targetSeat: number, senderWs: WebSocket): Promise<void> {
+    // Only allow pings in lobby or bidding phases
+    if (state.phase !== 'lobby' && state.phase !== 'bidding') {
+      senderWs.send(JSON.stringify({ type: 'error', message: 'Can only ping during lobby or bidding phase.' }));
+      return;
+    }
+
+    // Room must be linked to Telegram
+    if (!state.groupId) {
+      senderWs.send(JSON.stringify({ type: 'error', message: 'This room is not linked to Telegram.' }));
+      return;
+    }
+
+    // Find pinger and target
+    const pinger = state.players.find((p) => p.id === pingerId);
+    if (!pinger) return;
+
+    const target = state.players.find((p) => p.seat === targetSeat);
+    if (!target) {
+      senderWs.send(JSON.stringify({ type: 'error', message: 'Player not found.' }));
+      return;
+    }
+
+    // Can't ping yourself
+    if (pinger.seat === targetSeat) {
+      senderWs.send(JSON.stringify({ type: 'error', message: 'Cannot ping yourself.' }));
+      return;
+    }
+
+    // Check cooldown: target can't be pinged if they were pinged in the last 10 seconds
+    const now = Date.now();
+    const lastPingTime = state.pingCooldowns[targetSeat] ?? 0;
+    const cooldownRemaining = Math.max(0, 10000 - (now - lastPingTime));
+
+    if (cooldownRemaining > 0) {
+      const secondsLeft = Math.ceil(cooldownRemaining / 1000);
+      senderWs.send(JSON.stringify({
+        type: 'error',
+        message: `${target.name} was pinged recently. Please wait ${secondsLeft}s before pinging again.`
+      }));
+      return;
+    }
+
+    // Send Telegram ping message
+    if (target.id.startsWith('tg_')) {
+      const targetTgId = Number(target.id.slice(3));
+      try {
+        await sendMessage(
+          (this.env as Env).TELEGRAM_BOT_TOKEN,
+          state.groupId,
+          `<a href="tg://user?id=${targetTgId}">${target.name}</a>, you're being pinged in the game! 🎴`,
+        );
+      } catch (err) {
+        senderWs.send(JSON.stringify({ type: 'error', message: 'Failed to send ping.' }));
+        return;
+      }
+    }
+
+    // Update cooldown
+    state.pingCooldowns[targetSeat] = now;
+    await this.saveState(state);
+
+    // Broadcast notification to all players
+    this.broadcast({ type: 'playerPinged', pinger: pinger.name, seat: targetSeat });
   }
 
   private async handleStartGame(state: GameState, requestorId: string): Promise<void> {
@@ -2591,6 +2671,21 @@ export class GameRoom extends DurableObject {
     const requestor = state.players.find((p) => p.id === requestorId);
     if (!requestor || requestor.seat !== 0) return;
     if (state.players.length !== NUM_PLAYERS) return;
+
+    // All 4 seated players must be connected before starting
+    const allConnected = state.players.every((p) => p.connected);
+    if (!allConnected) {
+      requestor.connected && this.sessions.forEach((session, ws) => {
+        if (session.playerId === requestorId) {
+          const disconnectedSeats = state.players.filter((p) => !p.connected).map((p) => p.seat);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: `Waiting for players: Seats ${disconnectedSeats.join(', ')} still connecting...`
+          }));
+        }
+      });
+      return;
+    }
 
     await this.ctx.storage.deleteAlarm();
     await this.startGameFromLobby(state);

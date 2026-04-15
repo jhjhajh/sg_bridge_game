@@ -80,6 +80,7 @@ export interface GameState {
   trickWinners: number[];
   initialHands: Hand[];
   origin: string | null;
+  pingCooldowns: { [seat: number]: number }; // timestamp of last ping per recipient seat
 }
 
 export interface PlayerGameView {

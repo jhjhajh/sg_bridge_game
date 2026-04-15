@@ -1,7 +1,7 @@
 import type { PlayerGameView, Suit } from './types';
 
 export type ClientMessage =
-  | { type: 'join'; name: string }
+  | { type: 'join'; name: string; joinAs?: 'player' | 'spectator' }
   | { type: 'bid'; bidNum: number }
   | { type: 'pass' }
   | { type: 'selectPartner'; card: string }
@@ -13,7 +13,8 @@ export type ClientMessage =
   | { type: 'removeBot' }
   | { type: 'kickPlayer'; seat: number }
   | { type: 'startGame' }
-  | { type: 'chat'; text: string };
+  | { type: 'chat'; text: string }
+  | { type: 'pingPlayer'; seat: number };
 
 export type ServerMessage =
   | { type: 'state'; state: PlayerGameView }
@@ -34,4 +35,5 @@ export type ServerMessage =
   | { type: 'playerReconnected'; seat: number; name: string }
   | { type: 'kicked'; reason: string }
   | { type: 'playerKicked'; seat: number; name: string }
-  | { type: 'chat'; name: string; seat: number; text: string };
+  | { type: 'chat'; name: string; seat: number; text: string }
+  | { type: 'playerPinged'; pinger: string; seat: number };

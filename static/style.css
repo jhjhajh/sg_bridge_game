@@ -382,6 +382,16 @@ body.has-spectators .screen {
 .home-container .btn { width: 100%; }
 #btn-create { margin-bottom: 0.75rem; }
 #btn-create-group { margin-bottom: 0; }
+.role-choice-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+.role-choice-buttons .btn {
+  padding: 1rem;
+  font-size: 1rem;
+}
 
 /* --- Lobby --- */
 .lobby-container {
@@ -624,7 +634,7 @@ body.has-spectators .screen {
 .partner-card-btn.red { color: var(--red-suit); }
 
 /* --- Play screen --- */
-.play-container { padding: 0.5rem; width: 100%; max-width: 600px; }
+.play-container { padding: 0.5rem; width: 100%; max-width: 600px; padding-bottom: 45vh; }
 .game-info-bar {
   display: flex; flex-wrap: wrap; gap: 0.6rem;
   justify-content: center;
@@ -1512,6 +1522,24 @@ body.has-spectators .screen {
 .kick-btn:hover {
   background: rgba(255, 68, 87, 0.15);
 }
+.ping-btn {
+  background: none;
+  border: none;
+  color: var(--accent-light);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font: inherit;
+  transition: opacity var(--transition);
+}
+.ping-btn:hover {
+  opacity: 0.7;
+}
+.ping-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: none;
+}
 #lobby-start-btn {
   width: 100%;
   margin-top: 0.75rem;
@@ -1569,10 +1597,24 @@ body.has-spectators .screen {
   background: rgba(255,255,255,0.1);
 }
 
-/* --- Play screen chat input bar --- */
-.play-chat-bar {
-  margin-top: 0.5rem;
-  padding: 0 0.5rem;
+/* --- Play screen chat area --- */
+.play-chat-area {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.8));
+  padding: 0.75rem 1rem 1rem 1rem;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 40vh;
+  z-index: 50;
+}
+.play-chat-area .inline-chat-log {
+  max-height: calc(40vh - 2.5rem);
+  min-height: 40px;
 }
 
 /* --- Chat bubbles (play screen) --- */

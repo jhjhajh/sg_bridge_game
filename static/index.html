@@ -78,6 +78,18 @@
     </div>
   </div>
 
+  <!-- Role choice screen (shown when joining via invite link) -->
+  <div id="screen-role-choice" class="screen hidden">
+    <div class="home-container">
+      <h2>Join as Player or Spectator?</h2>
+      <p class="subtitle">Choose your role for this game</p>
+      <div class="role-choice-buttons">
+        <button id="btn-join-player" class="btn btn-primary">♠ Join as Player</button>
+        <button id="btn-join-spectator" class="btn btn-secondary">👁 Watch Game</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Lobby screen -->
   <div id="screen-lobby" class="screen hidden">
     <div class="lobby-container">
@@ -209,9 +221,12 @@
       <div class="hand-display" id="play-hand-section">
         <div id="play-hand" class="card-hand"></div>
       </div>
-      <div class="play-chat-bar chat-input-row">
-        <input type="text" class="chat-input-field" placeholder="Message..." maxlength="200" autocomplete="off">
-        <button class="chat-send-btn btn btn-ghost btn-small">Send</button>
+      <div class="play-chat-area">
+        <div class="inline-chat-log" id="play-chat-log"></div>
+        <div class="chat-input-row">
+          <input type="text" class="chat-input-field" placeholder="Message..." maxlength="200" autocomplete="off">
+          <button class="chat-send-btn btn btn-ghost btn-small">Send</button>
+        </div>
       </div>
     </div>
   </div>

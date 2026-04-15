@@ -33,6 +33,8 @@ localStorage.setItem('playerId', playerId);
 
 let playerName = localStorage.getItem('playerName') || '';
 let roomCode = hashInfo.room || sessionStorage.getItem('roomCode') || null;
+let roomCodeFromHash = hashInfo.room ? true : false;  // Track if room came from invite link
+let joinAs = null;  // 'player' or 'spectator' for joining via invite
 let reconnectTimer = null;
 let reconnectDelay = 2000;
 let gameState = null;
@@ -58,6 +60,9 @@ let authDisplayName = null; // name from /api/me, null for guests
 let myBet = null;
 let myBetGameId = null;
 let myBetFetching = false;
+
+// Ping cooldown state (client-side for UI feedback)
+let pingCooldowns = {}; // { seat: timestamp }
 
 // --- DOM refs ---
 const $ = (id) => document.getElementById(id);
@@ -631,7 +636,9 @@ function connect() {
   ws.onopen = () => {
     reconnectDelay = 2000;
     $('overlay-reconnect').classList.add('hidden');
-    ws.send(JSON.stringify({ type: 'join', name: playerName }));
+    const joinMsg = { type: 'join', name: playerName };
+    if (joinAs) joinMsg.joinAs = joinAs;
+    ws.send(JSON.stringify(joinMsg));
   };
 
   ws.onmessage = (e) => {
@@ -856,6 +863,10 @@ function handleMessage(msg) {
         if (p) p.connected = true;
         renderState();
       }
+      break;
+    case 'playerPinged':
+      // Show notification when someone is pinged
+      showConnectionToast(`${msg.pinger} pinged ${gameState?.players.find(p => p.seat === msg.seat)?.name || 'a player'}`);
       break;
   }
 }
@@ -1082,12 +1093,16 @@ function statusDot(connected) {
   return `<span class="status-dot ${connected ? 'online' : 'offline'}"></span>`;
 }
 
-function renderPlayerStatusBar(container, players) {
+function renderPlayerStatusBar(container, players, enablePing = false) {
   container.innerHTML = '';
   for (const p of players) {
     const item = document.createElement('span');
     item.className = 'player-status-chip';
-    item.innerHTML = `${statusDot(p.connected)}${esc(p.name)}`;
+    // Make names clickable for pinging in bidding if enabled and room is linked to Telegram
+    const nameHtml = enablePing && gameState?.groupId && !gameState?.isSpectator && p.seat !== gameState?.mySeat && !p.isBot
+      ? `<button class="ping-btn" onclick="pingPlayer(${p.seat})">${esc(p.name)}</button>`
+      : esc(p.name);
+    item.innerHTML = `${statusDot(p.connected)}${nameHtml}`;
     container.appendChild(item);
   }
 }
@@ -1161,7 +1176,12 @@ function renderLobby(s) {
     const kickBtn = (!s.isSpectator && s.phase === 'lobby' && p.seat !== s.mySeat && (!p.isBot || isHost))
       ? `<button class="kick-btn" onclick="send({type:'kickPlayer',seat:${p.seat}})">✕</button>`
       : '';
-    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}<span class="lobby-player-name">${esc(p.name)}</span>${statsHtml}${notRankedBadge}${kickBtn}`;
+    // Make player name clickable for pinging if room is linked to Telegram and not self
+    const canPing = s.groupId && !s.isSpectator && p.seat !== s.mySeat && !p.isBot;
+    const nameHtml = canPing
+      ? `<button class="lobby-player-name ping-btn" onclick="pingPlayer(${p.seat})">${esc(p.name)}</button>`
+      : `<span class="lobby-player-name">${esc(p.name)}</span>`;
+    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}${nameHtml}${statsHtml}${notRankedBadge}${kickBtn}`;
     list.appendChild(item);
   }
   const remaining = NUM_PLAYERS - s.players.length;
@@ -1191,17 +1211,27 @@ function renderLobby(s) {
 
   if (remaining === 0 && s.gameStartAt) {
     const secsLeft = Math.max(0, Math.ceil((s.gameStartAt - Date.now()) / 1000));
-    countdownEl.textContent = `Game starting in ${secsLeft}...`;
-    countdownEl.classList.remove('hidden');
-    statusEl.classList.add('hidden');
-    if (isHost) {
-      startBtn.classList.remove('hidden');
-    } else {
+    const anyDisconnected = s.players.some((p) => !p.connected);
+
+    if (anyDisconnected) {
+      countdownEl.classList.add('hidden');
+      statusEl.classList.remove('hidden');
+      const disconnected = s.players.filter((p) => !p.connected);
+      statusEl.textContent = `Waiting for reconnection: ${disconnected.map((p) => p.name).join(', ')}`;
       startBtn.classList.add('hidden');
-    }
-    if (secsLeft > 0) {
-      clearTimeout(lobbyCountdownTimer);
-      lobbyCountdownTimer = setTimeout(() => { if (gameState && gameState.phase === 'lobby') renderLobby(gameState); }, 500);
+    } else {
+      countdownEl.textContent = `Game starting in ${secsLeft}...`;
+      countdownEl.classList.remove('hidden');
+      statusEl.classList.add('hidden');
+      if (isHost) {
+        startBtn.classList.remove('hidden');
+      } else {
+        startBtn.classList.add('hidden');
+      }
+      if (secsLeft > 0) {
+        clearTimeout(lobbyCountdownTimer);
+        lobbyCountdownTimer = setTimeout(() => { if (gameState && gameState.phase === 'lobby') renderLobby(gameState); }, 500);
+      }
     }
   } else {
     clearTimeout(lobbyCountdownTimer);
@@ -1209,9 +1239,16 @@ function renderLobby(s) {
     countdownEl.classList.add('hidden');
     startBtn.classList.add('hidden');
     statusEl.classList.remove('hidden');
-    statusEl.textContent = remaining > 0
-      ? `Waiting for ${remaining} more player(s)...`
-      : 'Game starting...';
+
+    // Check for disconnected players
+    const disconnected = s.players.filter((p) => !p.connected);
+    if (disconnected.length > 0) {
+      statusEl.textContent = `Waiting for ${disconnected.length} player(s) to reconnect: ${disconnected.map((p) => p.name).join(', ')}`;
+    } else if (remaining > 0) {
+      statusEl.textContent = `Waiting for ${remaining} more player(s)...`;
+    } else {
+      statusEl.textContent = 'Game starting...';
+    }
   }
 
   const addIntBotBtn = $('lobby-add-int-bot');
@@ -1330,7 +1367,7 @@ function renderSpectatorBar(s) {
 
 // --- Bidding ---
 function renderBidding(s) {
-  renderPlayerStatusBar($('bidding-players'), s.players);
+  renderPlayerStatusBar($('bidding-players'), s.players, true);
   renderSpectatorBar(s);
   renderSpectatorSwitcher(s, 'bidding-spectator-switcher');
   renderFullBoardInto(s, 'bidding-fullboard', ['bidding-hand-section']);
@@ -2176,9 +2213,14 @@ $('btn-join').addEventListener('click', () => {
   if (!code || code.length < 3) { alert('Please enter a valid room code'); return; }
   setRoomCode(code);
 
-  showScreen('screen-lobby');
-  $('lobby-room-code').textContent = roomCode;
-  connect();
+  // If joining via invite link (and haven't chosen role yet), show role choice screen
+  if (code === hashInfo.room && hashInfo.room && !joinAs) {
+    showScreen('screen-role-choice');
+  } else {
+    showScreen('screen-lobby');
+    $('lobby-room-code').textContent = roomCode;
+    connect();
+  }
 });
 
 $('btn-share-link').addEventListener('click', () => {
@@ -2241,8 +2283,52 @@ $('input-name').addEventListener('keydown', (e) => {
   }
 });
 
+// Ping a player for Telegram
+function pingPlayer(seat) {
+  if (!gameState || !gameState.groupId) return;
+  const now = Date.now();
+  const lastPingTime = pingCooldowns[seat] ?? 0;
+  const cooldownRemaining = Math.max(0, 10000 - (now - lastPingTime));
+
+  if (cooldownRemaining > 0) {
+    const secondsLeft = Math.ceil(cooldownRemaining / 1000);
+    alert(`Please wait ${secondsLeft}s before pinging this player again.`);
+    return;
+  }
+
+  send({ type: 'pingPlayer', seat });
+  pingCooldowns[seat] = now;
+}
+
+// Add role choice button handlers
+$('btn-join-player').addEventListener('click', () => {
+  joinAs = 'player';
+  sessionStorage.setItem('joinRole', 'player');  // Persist choice for reconnects
+  showScreen('screen-lobby');
+  $('lobby-room-code').textContent = roomCode;
+  connect();
+});
+
+$('btn-join-spectator').addEventListener('click', () => {
+  joinAs = 'spectator';
+  sessionStorage.setItem('joinRole', 'spectator');  // Persist choice for reconnects
+  showScreen('screen-lobby');
+  $('lobby-room-code').textContent = roomCode;
+  connect();
+});
+
+// Restore join role from session storage if available
+if (!joinAs && sessionStorage.getItem('joinRole')) {
+  joinAs = sessionStorage.getItem('joinRole');
+}
+
 // Auto-reconnect or pre-fill from URL hash
-if (roomCode && playerName) {
+if (roomCode && playerName && roomCodeFromHash && !joinAs) {
+  // If arriving via invite link and haven't chosen a role yet, show role choice screen
+  history.replaceState(null, '', buildHashWithId(roomCode));
+  showScreen('screen-role-choice');
+} else if (roomCode && playerName) {
+  // If reconnecting (roomCode in sessionStorage + playerName), auto-connect
   history.replaceState(null, '', buildHashWithId(roomCode));
   showScreen('screen-lobby');
   $('lobby-room-code').textContent = roomCode;
