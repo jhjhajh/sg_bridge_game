@@ -634,7 +634,7 @@ body.has-spectators .screen {
 .partner-card-btn.red { color: var(--red-suit); }
 
 /* --- Play screen --- */
-.play-container { padding: 0.5rem; width: 100%; max-width: 600px; padding-bottom: 45vh; }
+.play-container { padding: 0.5rem; width: 100%; max-width: 600px; }
 .game-info-bar {
   display: flex; flex-wrap: wrap; gap: 0.6rem;
   justify-content: center;
@@ -1595,26 +1595,6 @@ body.has-spectators .screen {
 .chat-input-row input:focus {
   border-color: rgba(139,92,246,0.5);
   background: rgba(255,255,255,0.1);
-}
-
-/* --- Play screen chat area --- */
-.play-chat-area {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.8));
-  padding: 0.75rem 1rem 1rem 1rem;
-  border-top: 1px solid rgba(255,255,255,0.1);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-height: 40vh;
-  z-index: 50;
-}
-.play-chat-area .inline-chat-log {
-  max-height: calc(40vh - 2.5rem);
-  min-height: 40px;
 }
 
 /* --- Chat bubbles (play screen) --- */
