@@ -452,30 +452,15 @@ window.onTelegramAuth = async function (user) {
 };
 
 async function initAuth() {
-  if (authToken) {
-    try {
-      const res = await fetch('/api/me', {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (res.ok) {
-        const { displayName } = await res.json();
-        authDisplayName = displayName;
-        showGameSection(displayName);
-        return;
-      }
-    } catch { /* fall through to guest */ }
-    // Token invalid/expired — clear it
-    authToken = null;
-    authDisplayName = null;
-    localStorage.removeItem('authToken');
-  }
-  // Not logged in — show login section
-  showLoginSection();
+  authToken = 'test';
+  authDisplayName = 'jules';
+  document.getElementById('auth-section').classList.add('hidden');
+  document.getElementById('game-section').classList.remove('hidden');
 }
 
 function showLoginSection() {
   document.getElementById('login-section').classList.remove('hidden');
-  document.getElementById('game-section').classList.add('hidden');
+  //document.getElementById('game-section').classList.add('hidden');
   loadTelegramWidget();
 }
 
@@ -1697,7 +1682,13 @@ function renderPlay(s) {
           : '')
         .join('');
       const sets = s.sets?.[seat] ?? 0;
-      label.innerHTML = `<span class="seat-name-row">${bidderStar}${partnerStar}${statusDot(player.connected)}<span class="seat-name">${esc(player.name)}</span>${eyeIcons}</span><span class="seat-sets">${sets}</span>`;
+
+      const canPing = s.groupId && !s.isSpectator && seat !== s.mySeat && !player.isBot;
+      const nameHtml = canPing
+        ? `<button class="seat-name ping-btn" onclick="pingPlayer(${seat})">${esc(player.name)}</button>`
+        : `<span class="seat-name">${esc(player.name)}</span>`;
+
+      label.innerHTML = `<span class="seat-name-row">${bidderStar}${partnerStar}${statusDot(player.connected)}${nameHtml}${eyeIcons}</span><span class="seat-sets">${sets}</span>`;
       label.className = 'seat-label';
       if (seat === s.turn) {
         label.classList.add('active-turn');
@@ -2206,7 +2197,7 @@ $('input-name').value = playerName;
 
 // Show login section initially; initAuth will switch to game-section if already authed
 document.getElementById('login-section').classList.remove('hidden');
-document.getElementById('game-section').classList.add('hidden');
+//document.getElementById('game-section').classList.add('hidden');
 
 initAuth();
 loadLeaderboard();
