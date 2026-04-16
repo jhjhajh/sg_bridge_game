@@ -229,29 +229,75 @@ export class GameRoom extends DurableObject {
     this.sessions.delete(ws);
   }
 
-  async alarm(): Promise<void> {
+      async alarm(): Promise<void> {
     const state = await this.getState();
     if (!state) return;
 
-    // Countdown alarm — auto-start game when 5 seconds elapse
-    if (state.gameStartAt !== null && Date.now() >= state.gameStartAt - 100) {
-      if (state.phase === 'lobby' && state.players.length === NUM_PLAYERS) {
-        const anyConnected = state.players.some((p) => p.connected);
-        if (anyConnected) {
-          await this.startGameFromLobby(state);
-          return;
-        }
+    const now = Date.now();
+    let nextAlarmAt: number | null = null;
+
+    const schedule = (time: number) => {
+      if (nextAlarmAt === null || time < nextAlarmAt) {
+        nextAlarmAt = time;
       }
-      // Countdown fired but couldn't start — schedule cleanup
-      state.gameStartAt = null;
-      await this.saveState(state);
-      await this.ctx.storage.setAlarm(Date.now() + 5 * 60 * 1000);
-      return;
+    };
+
+    // Countdown alarm — auto-start game when 5 seconds elapse
+    if (state.gameStartAt !== null) {
+      if (now >= state.gameStartAt - 100) {
+        if (state.phase === 'lobby' && state.players.length === NUM_PLAYERS) {
+          const anyConnected = state.players.some((p) => p.connected);
+          if (anyConnected) {
+            await this.startGameFromLobby(state);
+            return;
+          }
+        }
+        // Countdown fired but couldn't start — schedule cleanup
+        state.gameStartAt = null;
+        await this.saveState(state);
+        schedule(now + 5 * 60 * 1000);
+      } else {
+        schedule(state.gameStartAt);
+      }
+    }
+
+    // Abandon vote timeout — auto-accept after 1 minute
+    if (state.abandonVote) {
+      if (now >= state.abandonVote.expiresAt) {
+        const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
+
+        // Auto-accept any unresponded votes
+        connectedHumans.forEach((p) => {
+          if (state.abandonVote!.votes[p.seat] === null) {
+            state.abandonVote!.votes[p.seat] = true;
+          }
+        });
+
+        // Check if all have voted and all accepted
+        const allAccepted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] === true);
+
+        if (allAccepted) {
+          // Unanimous yes — end game
+          state.abandonVote = undefined;
+          await this.endGameWithAbandon(state);
+          return;
+        } else {
+          // Some rejected or timed out as no — cancel vote
+          state.abandonVote = undefined;
+          await this.saveState(state);
+          this.broadcast({
+            type: 'abandonVoteFailed',
+            rejectSeat: -1,
+            rejectName: 'Timeout',
+          });
+        }
+      } else {
+        schedule(state.abandonVote.expiresAt);
+      }
     }
 
     // Bot replacement alarm — check if any disconnected players need bot takeover
     if (state.phase === 'bidding' || state.phase === 'play') {
-      const now = Date.now();
       const botReplacementThreshold = 180000; // 3 minutes in milliseconds
       let needsSave = false;
 
@@ -259,20 +305,23 @@ export class GameRoom extends DurableObject {
         const seat = Number(seatStr);
         const player = state.players[seat];
 
-        if (!player) continue;
-        if (player.isBot) continue; // Already a bot
-        if (player.connected) continue; // Reconnected
+        if (!player || player.isBot || player.connected) {
+          delete state.disconnectTimers[seat];
+          continue;
+        }
 
         // Check if 3 minutes have passed since disconnect
         if (now - disconnectTime >= botReplacementThreshold) {
           // Replace with sophisticated bot
           const originalPlayerId = player.id;
-          player.id = `bot_replacement_${Date.now()}_${seat}`;
+          player.id = `bot_replacement_${now}_${seat}`;
           player.isBot = true;
           player.botLevel = 'sophisticated';
           player.originalPlayerId = originalPlayerId;
           delete state.disconnectTimers[seat]; // Clean up timer
           needsSave = true;
+        } else {
+          schedule(disconnectTime + botReplacementThreshold);
         }
       }
 
@@ -283,59 +332,25 @@ export class GameRoom extends DurableObject {
         // Trigger bot to act immediately if it's their turn
         this.ctx.waitUntil(this.scheduleBotAction());
       }
-
-      // Re-schedule alarm for any remaining pending disconnect timers
-      const pendingTimers = Object.values(state.disconnectTimers);
-      if (pendingTimers.length > 0) {
-        const nextAlarmAt = Math.min(...pendingTimers) + botReplacementThreshold;
-        await this.ctx.storage.setAlarm(nextAlarmAt);
-        return;
-      }
-    }
-
-    // Abandon vote timeout — auto-accept after 1 minute
-    if (state.abandonVote && Date.now() >= state.abandonVote.expiresAt) {
-      const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
-
-      // Auto-accept any unresponded votes
-      connectedHumans.forEach((p) => {
-        if (state.abandonVote!.votes[p.seat] === null) {
-          state.abandonVote!.votes[p.seat] = true;
-        }
-      });
-
-      // Check if all have voted and all accepted
-      const allAccepted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] === true);
-
-      if (allAccepted) {
-        // Unanimous yes — end game
-        state.abandonVote = undefined;
-        await this.endGameWithAbandon(state);
-        return;
-      } else {
-        // Some rejected or timed out as no — cancel vote
-        state.abandonVote = undefined;
-        await this.saveState(state);
-        this.broadcast({
-          type: 'abandonVoteFailed',
-          rejectSeat: -1,
-          rejectName: 'Timeout',
-        });
-      }
-
-      // After handling the vote, re-schedule alarm for any pending bot-replacement timers
-      const pendingTimers = Object.values(state.disconnectTimers);
-      if (pendingTimers.length > 0 && (state.phase === 'bidding' || state.phase === 'play')) {
-        const nextAlarmAt = Math.min(...pendingTimers) + 180000;
-        await this.ctx.storage.setAlarm(nextAlarmAt);
-        return;
-      }
     }
 
     // Inactivity cleanup alarm
     const anyConnected = state.players.some((p) => p.connected);
-    if (!anyConnected) {
-      await this.ctx.storage.deleteAll();
+    if (!anyConnected && !state.gameStartAt && nextAlarmAt === null) {
+      if (!state.inactivityAlarmSet) {
+        state.inactivityAlarmSet = true;
+        await this.saveState(state);
+        schedule(now + 5 * 60 * 1000);
+      } else {
+        await this.ctx.storage.deleteAll();
+        return;
+      }
+    } else {
+      state.inactivityAlarmSet = false;
+    }
+
+    if (nextAlarmAt !== null) {
+      await this.ctx.storage.setAlarm(nextAlarmAt);
     }
   }
 
@@ -2743,9 +2758,9 @@ export class GameRoom extends DurableObject {
   }
 
   private async handlePingPlayer(state: GameState, pingerId: string, targetSeat: number, senderWs: WebSocket): Promise<void> {
-    // Only allow pings in lobby or bidding phases
-    if (state.phase !== 'lobby' && state.phase !== 'bidding') {
-      senderWs.send(JSON.stringify({ type: 'error', message: 'Can only ping during lobby or bidding phase.' }));
+    // Only allow pings in lobby, bidding, or play phases
+    if (state.phase !== 'lobby' && state.phase !== 'bidding' && state.phase !== 'play') {
+      senderWs.send(JSON.stringify({ type: 'error', message: 'Can only ping during lobby, bidding, or play phase.' }));
       return;
     }
 
