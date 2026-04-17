@@ -1,4 +1,5 @@
 import { type Suit, type BidSuit, type Hand, CARD_SUITS, BID_SUITS, NUM_PLAYERS, POINTS_TO_WASH } from './types';
+import { shuffle } from './random';
 
 const DECK_SIZE = 52;
 const HAND_SIZE = 13;
@@ -47,15 +48,6 @@ export function getNumFromBid(bid: string): number {
   const level = parseInt(parts[0], 10);
   const suit = parts[1];
   return (level - 1) * 5 + BID_SUITS.indexOf(suit as BidSuit);
-}
-
-function shuffle(deck: Card[]): void {
-  const arr = new Uint32Array(deck.length);
-  crypto.getRandomValues(arr);
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = arr[i] % (i + 1);
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
 }
 
 export function getPoints(hand: Card[]): number {

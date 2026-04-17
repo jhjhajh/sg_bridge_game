@@ -7,6 +7,7 @@ import { recordGameResult, getWinnerSeats } from './stats';
 import { getUser, recordGroupResult } from './db';
 import { sendMessage, isChatMember } from './telegram';
 import { recordGameStats, recordEloUpdate, type EloResult } from './stats-db';
+import { secureRandom, secureRandomInt, shuffle } from './random';
 import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
 import { settleBetsAndUpdateElo } from './betting-db';
 
@@ -1309,7 +1310,7 @@ export class GameRoom extends DurableObject {
 
   // --- Intermediate bot card play ---
   // Confidence model: before partner card revealed = 0.65, after = 0.85.
-  // Each decision point rolls Math.random() against confidence; failures fall back to basic logic.
+  // Each decision point rolls secureRandom() against confidence; failures fall back to basic logic.
   // Bidder team: don't steal partner's win, cover partner when losing.
   // Opposition: don't waste trump on lost tricks, prioritise blocking the bidder, avoid leading trump.
   // Leading: bidder team prefers suits partner bid (bid history signal); opposition avoids bidder's suits.
@@ -1330,7 +1331,7 @@ export class GameRoom extends DurableObject {
     const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
     const onBidderTeam = this.isOnBidderTeam(state, seat);
     const confidence = this.isPartnerCardRevealed(state) ? 0.85 : 0.65;
-    const useTeamLogic = state.partner >= 0 && Math.random() < confidence;
+    const useTeamLogic = state.partner >= 0 && secureRandom() < confidence;
 
     if (!trickInProgress) {
       return useTeamLogic
@@ -1674,7 +1675,7 @@ export class GameRoom extends DurableObject {
     if (points < 9) return null;
     if (points < 12) {
       // Compete with ~60% probability on modest hands
-      if (Math.random() > 0.6) return null;
+      if (secureRandom() > 0.6) return null;
       desiredLevel = 1;
     } else if (points < 16) {
       desiredLevel = 1; // first-level bias — widened from 12-14 to 12-15
@@ -1842,7 +1843,7 @@ export class GameRoom extends DurableObject {
     const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
     const onBidderTeam = this.isOnBidderTeam(state, seat);
     const confidence = this.isPartnerCardRevealed(state) ? 0.85 : 0.65;
-    const useTeamLogic = state.partner >= 0 && Math.random() < confidence;
+    const useTeamLogic = state.partner >= 0 && secureRandom() < confidence;
 
     if (!trickInProgress) {
       return useTeamLogic
@@ -1898,7 +1899,7 @@ export class GameRoom extends DurableObject {
         const hasVoidInSideSuit = CARD_SUITS.some(
           (s) => s !== state.trumpSuit && state.hands[seat][s].length === 0,
         );
-        if (hasVoidInSideSuit && Math.random() < 0.5) {
+        if (hasVoidInSideSuit && secureRandom() < 0.5) {
           const trumpCards = validCards.filter((c) => c.split(' ')[1] === state.trumpSuit);
           if (trumpCards.length > 0) return this.highestCard(trumpCards);
         }
@@ -1917,7 +1918,7 @@ export class GameRoom extends DurableObject {
       if (calledSuit) {
         const calledSuitCards = validCards.filter((c) => c.split(' ')[1] === calledSuit);
         const hasRevealHonor = calledSuitCards.some((c) => ['K', 'Q'].includes(c.split(' ')[0]));
-        if (hasRevealHonor && Math.random() < 0.7) {
+        if (hasRevealHonor && secureRandom() < 0.7) {
           return this.highestCard(calledSuitCards);
         }
       }
@@ -1962,7 +1963,7 @@ export class GameRoom extends DurableObject {
     // §4.1 Second-hand-low: playing 2nd, teammate still to play, holding K/Q/J → 70% play low
     if (orderedSoFar.length === 1 && afterUs.some((s) => this.isOnBidderTeam(state, s))) {
       const hasHonor = validCards.some((c) => ['K', 'Q', 'J'].includes(c.split(' ')[0]));
-      if (hasHonor && Math.random() < 0.7) {
+      if (hasHonor && secureRandom() < 0.7) {
         const nonHonors = validCards.filter((c) => !['A', 'K', 'Q', 'J'].includes(c.split(' ')[0]));
         return nonHonors.length > 0 ? this.lowestCard(nonHonors) : this.lowestCard(validCards);
       }
@@ -2020,7 +2021,7 @@ export class GameRoom extends DurableObject {
     // §4.1 Second-hand-low: playing 2nd, opp teammate still to play, holding K/Q/J → 70% play low
     if (orderedSoFar.length === 1 && afterUs.some((s) => !this.isOnBidderTeam(state, s))) {
       const hasHonor = validCards.some((c) => ['K', 'Q', 'J'].includes(c.split(' ')[0]));
-      if (hasHonor && Math.random() < 0.7) {
+      if (hasHonor && secureRandom() < 0.7) {
         const nonHonors = validCards.filter((c) => !['A', 'K', 'Q', 'J'].includes(c.split(' ')[0]));
         return nonHonors.length > 0 ? this.lowestCard(nonHonors) : this.lowestCard(validCards);
       }
@@ -2330,7 +2331,7 @@ export class GameRoom extends DurableObject {
 
     const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
     const confidence = this.isPartnerCardRevealed(state) ? 0.85 : 0.65;
-    const useTeamLogic = state.partner >= 0 && Math.random() < confidence;
+    const useTeamLogic = state.partner >= 0 && secureRandom() < confidence;
     const ppm = this.computePPM(state, seat);
     const role = this.getBotSophisticatedRole(state, seat);
 
@@ -2395,7 +2396,7 @@ export class GameRoom extends DurableObject {
 
     if (role === 'partner') {
       // High-Low Peter (both pre and post reveal): signal length to bidder
-      if (Math.random() < 0.3) {
+      if (secureRandom() < 0.3) {
         const peter = this.tryHighLowPeter(state, seat, validCards);
         if (peter) return peter;
       }
@@ -2411,7 +2412,7 @@ export class GameRoom extends DurableObject {
 
     // Opposition
     // Mimicry (pre-reveal, 15%): fake partner signal to mislead bidder
-    if (!revealed && Math.random() < 0.15) {
+    if (!revealed && secureRandom() < 0.15) {
       const bidderBidSuits = this.getBidderBidSuits(state);
       const fakeCards = validCards.filter(
         (c) => bidderBidSuits.has(c.split(' ')[1]) && c.split(' ')[1] !== state.trumpSuit,
@@ -2467,12 +2468,12 @@ export class GameRoom extends DurableObject {
         }
       }
       // Human Shield: random chance to sacrifice a mid-range card (6–J)
-      if (Math.random() < 0.25) {
+      if (secureRandom() < 0.25) {
         const midRange = validCards.filter((c) => {
           const r = getNumFromValue(c.split(' ')[0]);
           return r >= getNumFromValue('6') && r <= getNumFromValue('J');
         });
-        if (midRange.length > 0) return midRange[Math.floor(Math.random() * midRange.length)];
+        if (midRange.length > 0) return midRange[secureRandomInt(0, midRange.length - 1)];
       }
     }
 
@@ -2534,10 +2535,7 @@ export class GameRoom extends DurableObject {
 
   private shufflePlayerSeats(state: GameState): void {
     const players = state.players;
-    for (let i = players.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [players[i], players[j]] = [players[j], players[i]];
-    }
+    shuffle(players);
     players.forEach((p, i) => { p.seat = i; });
   }
 
@@ -2553,7 +2551,7 @@ export class GameRoom extends DurableObject {
       : -1;
 
     const otherSeats = [0, 1, 2, 3].filter((s) => s !== prevFirstBidderNewSeat);
-    const nextFirstBidder = otherSeats[Math.floor(Math.random() * otherSeats.length)];
+    const nextFirstBidder = otherSeats[secureRandomInt(0, otherSeats.length - 1)];
     state.firstBidder = nextFirstBidder;
 
     state.gameStartAt = null;
@@ -2625,7 +2623,7 @@ export class GameRoom extends DurableObject {
       !usedNames.has(`[B] ${n}`) && !usedNames.has(`[I] ${n}`) && !usedNames.has(`[A] ${n}`) && !usedNames.has(`[S] ${n}`),
     );
     const picked = available.length > 0
-      ? available[Math.floor(Math.random() * available.length)]
+      ? available[secureRandomInt(0, available.length - 1)]
       : `Bot ${botSeat}`;
     const botName = `${prefix}${picked}`;
     const bot: import('./types').Player = {
