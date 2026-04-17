@@ -1,11 +1,7 @@
 import { type Suit, type BidSuit, type Hand, CARD_SUITS, BID_SUITS, NUM_PLAYERS, POINTS_TO_WASH } from './types';
-import { shuffle } from './random';
 
 const DECK_SIZE = 52;
 const HAND_SIZE = 13;
-
-const VALUE_MAP: Record<number, string> = { 14: 'A', 13: 'K', 12: 'Q', 11: 'J' };
-const INV_VALUE_MAP: Record<string, number> = { 'A': 14, 'K': 13, 'Q': 12, 'J': 11 };
 
 interface Card {
   value: string;
@@ -24,11 +20,19 @@ const DECK_OF_52: Card[] = (() => {
 })();
 
 export function getValueFromNum(num: number): string {
-  return VALUE_MAP[num] ?? String(num);
+  if (num === 14) return 'A';
+  if (num === 13) return 'K';
+  if (num === 12) return 'Q';
+  if (num === 11) return 'J';
+  return String(num);
 }
 
 export function getNumFromValue(val: string): number {
-  return INV_VALUE_MAP[val] ?? parseInt(val, 10);
+  if (val === 'A') return 14;
+  if (val === 'K') return 13;
+  if (val === 'Q') return 12;
+  if (val === 'J') return 11;
+  return parseInt(val, 10);
 }
 
 export function getBidFromNum(num: number): string {
@@ -43,6 +47,15 @@ export function getNumFromBid(bid: string): number {
   const level = parseInt(parts[0], 10);
   const suit = parts[1];
   return (level - 1) * 5 + BID_SUITS.indexOf(suit as BidSuit);
+}
+
+function shuffle(deck: Card[]): void {
+  const arr = new Uint32Array(deck.length);
+  crypto.getRandomValues(arr);
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = arr[i] % (i + 1);
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
 }
 
 export function getPoints(hand: Card[]): number {

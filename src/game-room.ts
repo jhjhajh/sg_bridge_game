@@ -7,7 +7,6 @@ import { recordGameResult, getWinnerSeats } from './stats';
 import { getUser, recordGroupResult } from './db';
 import { sendMessage, isChatMember } from './telegram';
 import { recordGameStats, recordEloUpdate, type EloResult } from './stats-db';
-import { secureRandom, secureRandomInt, shuffle } from './random';
 import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
 import { settleBetsAndUpdateElo } from './betting-db';
 
@@ -230,75 +229,29 @@ export class GameRoom extends DurableObject {
     this.sessions.delete(ws);
   }
 
-      async alarm(): Promise<void> {
+  async alarm(): Promise<void> {
     const state = await this.getState();
     if (!state) return;
 
-    const now = Date.now();
-    let nextAlarmAt: number | null = null;
-
-    const schedule = (time: number) => {
-      if (nextAlarmAt === null || time < nextAlarmAt) {
-        nextAlarmAt = time;
-      }
-    };
-
     // Countdown alarm — auto-start game when 5 seconds elapse
-    if (state.gameStartAt !== null) {
-      if (now >= state.gameStartAt - 100) {
-        if (state.phase === 'lobby' && state.players.length === NUM_PLAYERS) {
-          const anyConnected = state.players.some((p) => p.connected);
-          if (anyConnected) {
-            await this.startGameFromLobby(state);
-            return;
-          }
-        }
-        // Countdown fired but couldn't start — schedule cleanup
-        state.gameStartAt = null;
-        await this.saveState(state);
-        schedule(now + 5 * 60 * 1000);
-      } else {
-        schedule(state.gameStartAt);
-      }
-    }
-
-    // Abandon vote timeout — auto-accept after 1 minute
-    if (state.abandonVote) {
-      if (now >= state.abandonVote.expiresAt) {
-        const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
-
-        // Auto-accept any unresponded votes
-        connectedHumans.forEach((p) => {
-          if (state.abandonVote!.votes[p.seat] === null) {
-            state.abandonVote!.votes[p.seat] = true;
-          }
-        });
-
-        // Check if all have voted and all accepted
-        const allAccepted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] === true);
-
-        if (allAccepted) {
-          // Unanimous yes — end game
-          state.abandonVote = undefined;
-          await this.endGameWithAbandon(state);
+    if (state.gameStartAt !== null && Date.now() >= state.gameStartAt - 100) {
+      if (state.phase === 'lobby' && state.players.length === NUM_PLAYERS) {
+        const anyConnected = state.players.some((p) => p.connected);
+        if (anyConnected) {
+          await this.startGameFromLobby(state);
           return;
-        } else {
-          // Some rejected or timed out as no — cancel vote
-          state.abandonVote = undefined;
-          await this.saveState(state);
-          this.broadcast({
-            type: 'abandonVoteFailed',
-            rejectSeat: -1,
-            rejectName: 'Timeout',
-          });
         }
-      } else {
-        schedule(state.abandonVote.expiresAt);
       }
+      // Countdown fired but couldn't start — schedule cleanup
+      state.gameStartAt = null;
+      await this.saveState(state);
+      await this.ctx.storage.setAlarm(Date.now() + 5 * 60 * 1000);
+      return;
     }
 
     // Bot replacement alarm — check if any disconnected players need bot takeover
     if (state.phase === 'bidding' || state.phase === 'play') {
+      const now = Date.now();
       const botReplacementThreshold = 180000; // 3 minutes in milliseconds
       let needsSave = false;
 
@@ -306,23 +259,20 @@ export class GameRoom extends DurableObject {
         const seat = Number(seatStr);
         const player = state.players[seat];
 
-        if (!player || player.isBot || player.connected) {
-          delete state.disconnectTimers[seat];
-          continue;
-        }
+        if (!player) continue;
+        if (player.isBot) continue; // Already a bot
+        if (player.connected) continue; // Reconnected
 
         // Check if 3 minutes have passed since disconnect
         if (now - disconnectTime >= botReplacementThreshold) {
           // Replace with sophisticated bot
           const originalPlayerId = player.id;
-          player.id = `bot_replacement_${now}_${seat}`;
+          player.id = `bot_replacement_${Date.now()}_${seat}`;
           player.isBot = true;
           player.botLevel = 'sophisticated';
           player.originalPlayerId = originalPlayerId;
           delete state.disconnectTimers[seat]; // Clean up timer
           needsSave = true;
-        } else {
-          schedule(disconnectTime + botReplacementThreshold);
         }
       }
 
@@ -333,25 +283,59 @@ export class GameRoom extends DurableObject {
         // Trigger bot to act immediately if it's their turn
         this.ctx.waitUntil(this.scheduleBotAction());
       }
+
+      // Re-schedule alarm for any remaining pending disconnect timers
+      const pendingTimers = Object.values(state.disconnectTimers);
+      if (pendingTimers.length > 0) {
+        const nextAlarmAt = Math.min(...pendingTimers) + botReplacementThreshold;
+        await this.ctx.storage.setAlarm(nextAlarmAt);
+        return;
+      }
+    }
+
+    // Abandon vote timeout — auto-accept after 1 minute
+    if (state.abandonVote && Date.now() >= state.abandonVote.expiresAt) {
+      const connectedHumans = state.players.filter((p) => p.connected && !p.isBot);
+
+      // Auto-accept any unresponded votes
+      connectedHumans.forEach((p) => {
+        if (state.abandonVote!.votes[p.seat] === null) {
+          state.abandonVote!.votes[p.seat] = true;
+        }
+      });
+
+      // Check if all have voted and all accepted
+      const allAccepted = connectedHumans.every((p) => state.abandonVote!.votes[p.seat] === true);
+
+      if (allAccepted) {
+        // Unanimous yes — end game
+        state.abandonVote = undefined;
+        await this.endGameWithAbandon(state);
+        return;
+      } else {
+        // Some rejected or timed out as no — cancel vote
+        state.abandonVote = undefined;
+        await this.saveState(state);
+        this.broadcast({
+          type: 'abandonVoteFailed',
+          rejectSeat: -1,
+          rejectName: 'Timeout',
+        });
+      }
+
+      // After handling the vote, re-schedule alarm for any pending bot-replacement timers
+      const pendingTimers = Object.values(state.disconnectTimers);
+      if (pendingTimers.length > 0 && (state.phase === 'bidding' || state.phase === 'play')) {
+        const nextAlarmAt = Math.min(...pendingTimers) + 180000;
+        await this.ctx.storage.setAlarm(nextAlarmAt);
+        return;
+      }
     }
 
     // Inactivity cleanup alarm
     const anyConnected = state.players.some((p) => p.connected);
-    if (!anyConnected && !state.gameStartAt && nextAlarmAt === null) {
-      if (!state.inactivityAlarmSet) {
-        state.inactivityAlarmSet = true;
-        await this.saveState(state);
-        schedule(now + 5 * 60 * 1000);
-      } else {
-        await this.ctx.storage.deleteAll();
-        return;
-      }
-    } else {
-      state.inactivityAlarmSet = false;
-    }
-
-    if (nextAlarmAt !== null) {
-      await this.ctx.storage.setAlarm(nextAlarmAt);
+    if (!anyConnected) {
+      await this.ctx.storage.deleteAll();
     }
   }
 
@@ -1310,7 +1294,7 @@ export class GameRoom extends DurableObject {
 
   // --- Intermediate bot card play ---
   // Confidence model: before partner card revealed = 0.65, after = 0.85.
-  // Each decision point rolls secureRandom() against confidence; failures fall back to basic logic.
+  // Each decision point rolls Math.random() against confidence; failures fall back to basic logic.
   // Bidder team: don't steal partner's win, cover partner when losing.
   // Opposition: don't waste trump on lost tricks, prioritise blocking the bidder, avoid leading trump.
   // Leading: bidder team prefers suits partner bid (bid history signal); opposition avoids bidder's suits.
@@ -1331,7 +1315,7 @@ export class GameRoom extends DurableObject {
     const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
     const onBidderTeam = this.isOnBidderTeam(state, seat);
     const confidence = this.isPartnerCardRevealed(state) ? 0.85 : 0.65;
-    const useTeamLogic = state.partner >= 0 && secureRandom() < confidence;
+    const useTeamLogic = state.partner >= 0 && Math.random() < confidence;
 
     if (!trickInProgress) {
       return useTeamLogic
@@ -1675,7 +1659,7 @@ export class GameRoom extends DurableObject {
     if (points < 9) return null;
     if (points < 12) {
       // Compete with ~60% probability on modest hands
-      if (secureRandom() > 0.6) return null;
+      if (Math.random() > 0.6) return null;
       desiredLevel = 1;
     } else if (points < 16) {
       desiredLevel = 1; // first-level bias — widened from 12-14 to 12-15
@@ -1843,7 +1827,7 @@ export class GameRoom extends DurableObject {
     const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
     const onBidderTeam = this.isOnBidderTeam(state, seat);
     const confidence = this.isPartnerCardRevealed(state) ? 0.85 : 0.65;
-    const useTeamLogic = state.partner >= 0 && secureRandom() < confidence;
+    const useTeamLogic = state.partner >= 0 && Math.random() < confidence;
 
     if (!trickInProgress) {
       return useTeamLogic
@@ -1899,7 +1883,7 @@ export class GameRoom extends DurableObject {
         const hasVoidInSideSuit = CARD_SUITS.some(
           (s) => s !== state.trumpSuit && state.hands[seat][s].length === 0,
         );
-        if (hasVoidInSideSuit && secureRandom() < 0.5) {
+        if (hasVoidInSideSuit && Math.random() < 0.5) {
           const trumpCards = validCards.filter((c) => c.split(' ')[1] === state.trumpSuit);
           if (trumpCards.length > 0) return this.highestCard(trumpCards);
         }
@@ -1918,7 +1902,7 @@ export class GameRoom extends DurableObject {
       if (calledSuit) {
         const calledSuitCards = validCards.filter((c) => c.split(' ')[1] === calledSuit);
         const hasRevealHonor = calledSuitCards.some((c) => ['K', 'Q'].includes(c.split(' ')[0]));
-        if (hasRevealHonor && secureRandom() < 0.7) {
+        if (hasRevealHonor && Math.random() < 0.7) {
           return this.highestCard(calledSuitCards);
         }
       }
@@ -1963,7 +1947,7 @@ export class GameRoom extends DurableObject {
     // §4.1 Second-hand-low: playing 2nd, teammate still to play, holding K/Q/J → 70% play low
     if (orderedSoFar.length === 1 && afterUs.some((s) => this.isOnBidderTeam(state, s))) {
       const hasHonor = validCards.some((c) => ['K', 'Q', 'J'].includes(c.split(' ')[0]));
-      if (hasHonor && secureRandom() < 0.7) {
+      if (hasHonor && Math.random() < 0.7) {
         const nonHonors = validCards.filter((c) => !['A', 'K', 'Q', 'J'].includes(c.split(' ')[0]));
         return nonHonors.length > 0 ? this.lowestCard(nonHonors) : this.lowestCard(validCards);
       }
@@ -2021,7 +2005,7 @@ export class GameRoom extends DurableObject {
     // §4.1 Second-hand-low: playing 2nd, opp teammate still to play, holding K/Q/J → 70% play low
     if (orderedSoFar.length === 1 && afterUs.some((s) => !this.isOnBidderTeam(state, s))) {
       const hasHonor = validCards.some((c) => ['K', 'Q', 'J'].includes(c.split(' ')[0]));
-      if (hasHonor && secureRandom() < 0.7) {
+      if (hasHonor && Math.random() < 0.7) {
         const nonHonors = validCards.filter((c) => !['A', 'K', 'Q', 'J'].includes(c.split(' ')[0]));
         return nonHonors.length > 0 ? this.lowestCard(nonHonors) : this.lowestCard(validCards);
       }
@@ -2331,7 +2315,7 @@ export class GameRoom extends DurableObject {
 
     const trickInProgress = !state.trickComplete && state.playedCards.some((c) => c !== null);
     const confidence = this.isPartnerCardRevealed(state) ? 0.85 : 0.65;
-    const useTeamLogic = state.partner >= 0 && secureRandom() < confidence;
+    const useTeamLogic = state.partner >= 0 && Math.random() < confidence;
     const ppm = this.computePPM(state, seat);
     const role = this.getBotSophisticatedRole(state, seat);
 
@@ -2396,7 +2380,7 @@ export class GameRoom extends DurableObject {
 
     if (role === 'partner') {
       // High-Low Peter (both pre and post reveal): signal length to bidder
-      if (secureRandom() < 0.3) {
+      if (Math.random() < 0.3) {
         const peter = this.tryHighLowPeter(state, seat, validCards);
         if (peter) return peter;
       }
@@ -2412,7 +2396,7 @@ export class GameRoom extends DurableObject {
 
     // Opposition
     // Mimicry (pre-reveal, 15%): fake partner signal to mislead bidder
-    if (!revealed && secureRandom() < 0.15) {
+    if (!revealed && Math.random() < 0.15) {
       const bidderBidSuits = this.getBidderBidSuits(state);
       const fakeCards = validCards.filter(
         (c) => bidderBidSuits.has(c.split(' ')[1]) && c.split(' ')[1] !== state.trumpSuit,
@@ -2468,12 +2452,12 @@ export class GameRoom extends DurableObject {
         }
       }
       // Human Shield: random chance to sacrifice a mid-range card (6–J)
-      if (secureRandom() < 0.25) {
+      if (Math.random() < 0.25) {
         const midRange = validCards.filter((c) => {
           const r = getNumFromValue(c.split(' ')[0]);
           return r >= getNumFromValue('6') && r <= getNumFromValue('J');
         });
-        if (midRange.length > 0) return midRange[secureRandomInt(0, midRange.length - 1)];
+        if (midRange.length > 0) return midRange[Math.floor(Math.random() * midRange.length)];
       }
     }
 
@@ -2535,7 +2519,10 @@ export class GameRoom extends DurableObject {
 
   private shufflePlayerSeats(state: GameState): void {
     const players = state.players;
-    shuffle(players);
+    for (let i = players.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [players[i], players[j]] = [players[j], players[i]];
+    }
     players.forEach((p, i) => { p.seat = i; });
   }
 
@@ -2551,7 +2538,7 @@ export class GameRoom extends DurableObject {
       : -1;
 
     const otherSeats = [0, 1, 2, 3].filter((s) => s !== prevFirstBidderNewSeat);
-    const nextFirstBidder = otherSeats[secureRandomInt(0, otherSeats.length - 1)];
+    const nextFirstBidder = otherSeats[Math.floor(Math.random() * otherSeats.length)];
     state.firstBidder = nextFirstBidder;
 
     state.gameStartAt = null;
@@ -2623,7 +2610,7 @@ export class GameRoom extends DurableObject {
       !usedNames.has(`[B] ${n}`) && !usedNames.has(`[I] ${n}`) && !usedNames.has(`[A] ${n}`) && !usedNames.has(`[S] ${n}`),
     );
     const picked = available.length > 0
-      ? available[secureRandomInt(0, available.length - 1)]
+      ? available[Math.floor(Math.random() * available.length)]
       : `Bot ${botSeat}`;
     const botName = `${prefix}${picked}`;
     const bot: import('./types').Player = {
@@ -2756,9 +2743,9 @@ export class GameRoom extends DurableObject {
   }
 
   private async handlePingPlayer(state: GameState, pingerId: string, targetSeat: number, senderWs: WebSocket): Promise<void> {
-    // Only allow pings in lobby, bidding, or play phases
-    if (state.phase !== 'lobby' && state.phase !== 'bidding' && state.phase !== 'play') {
-      senderWs.send(JSON.stringify({ type: 'error', message: 'Can only ping during lobby, bidding, or play phase.' }));
+    // Only allow pings in lobby or bidding phases
+    if (state.phase !== 'lobby' && state.phase !== 'bidding') {
+      senderWs.send(JSON.stringify({ type: 'error', message: 'Can only ping during lobby or bidding phase.' }));
       return;
     }
 
