@@ -90,7 +90,6 @@ export interface GameState {
     votes: { [seat: number]: boolean | null }; // true=yes, false=no, null=no response yet
     expiresAt: number; // timestamp when vote expires (1 minute timeout)
   };
-  inactivityAlarmSet?: boolean;
 }
 
 export interface PlayerGameView {
