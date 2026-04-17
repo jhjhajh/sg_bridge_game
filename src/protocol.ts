@@ -13,6 +13,7 @@ export type ClientMessage =
   | { type: 'removeBot' }
   | { type: 'kickPlayer'; seat: number }
   | { type: 'startGame' }
+  | { type: 'leaveSpectator' }
   | { type: 'chat'; text: string }
   | { type: 'pingPlayer'; seat: number }
   | { type: 'initiateAbandon' }
