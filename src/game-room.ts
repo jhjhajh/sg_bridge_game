@@ -274,12 +274,22 @@ export class GameRoom extends DurableObject {
         if (now - disconnectTime >= botReplacementThreshold) {
           // Replace with sophisticated bot
           const originalPlayerId = player.id;
+          const originalPlayerName = player.name;
           player.id = `bot_replacement_${Date.now()}_${seat}`;
           player.isBot = true;
           player.botLevel = 'sophisticated';
           player.originalPlayerId = originalPlayerId;
           delete state.disconnectTimers[seat];
-          this.broadcast({ type: 'chat', name: 'System', seat: -1, text: `${player.name} was away for 90 seconds and has been replaced by a bot.` });
+          this.broadcast({ type: 'chat', name: 'System', seat: -1, text: `${originalPlayerName} was away for 90 seconds and has been replaced by a bot.` });
+          // Tag the replaced player in Telegram so they know
+          if (state.groupId && originalPlayerId.startsWith('tg_')) {
+            const targetTgId = Number(originalPlayerId.slice(3));
+            this.ctx.waitUntil(sendMessage(
+              (this.env as Env).TELEGRAM_BOT_TOKEN,
+              state.groupId,
+              `<a href="tg://user?id=${targetTgId}">${originalPlayerName}</a>, you were away for 90 seconds and have been replaced by a bot. Rejoin anytime to take back your seat. 🤖`,
+            ));
+          }
           needsSave = true;
         }
       }
