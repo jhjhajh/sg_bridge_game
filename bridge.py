@@ -11,21 +11,18 @@ DECK_OF_52 = [{"value": "2", "suit": "♣"}, {"value": "2", "suit": "♦"}, {"va
 BID_SUITS = ["♣", "♦", "♥", "♠", "🚫"]
 CARD_SUITS = ["♣", "♦", "♥", "♠"]
 
+VALUE_MAP = {14: "A", 13: "K", 12: "Q", 11: "J"}
+INV_VALUE_MAP = {v: k for k, v in VALUE_MAP.items()}
+
 
 def get_value_from_num(num):
-    if num == 14: return "A"
-    elif num == 13: return "K"
-    elif num == 12: return "Q"
-    elif num == 11: return "J"
-    else: return str(num)
+    return VALUE_MAP.get(num, str(num))
 
 
 def get_num_from_value(val):
-    if val == "A": return 14
-    elif val == "K": return 13
-    elif val == "Q": return 12
-    elif val == "J": return 11
-    else: return int(val)
+    if val in INV_VALUE_MAP:
+        return INV_VALUE_MAP[val]
+    return int(val)
 
 
 def get_bid_from_num(num):

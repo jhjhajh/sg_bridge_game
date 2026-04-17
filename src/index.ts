@@ -281,7 +281,7 @@ export default {
       return Response.json(data);
     }
 
-    // GET /api/betting/my-bet?room=XXXX
+    // GET /api/betting/my-bet?room={room}
     if (url.pathname === '/api/betting/my-bet' && request.method === 'GET') {
       const claims = await getAuthClaims(request, env.JWT_SECRET);
       if (!claims) return Response.json({ error: 'Unauthorized' }, { status: 401 });
