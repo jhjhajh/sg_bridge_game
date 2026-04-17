@@ -188,7 +188,17 @@ export class GameRoom extends DurableObject {
 
   async webSocketClose(ws: WebSocket, code: number): Promise<void> {
     try { ws.close(code); } catch { /* already closed */ }
-    const session = this.sessions.get(ws);
+    await this.handleWebSocketDisconnect(ws);
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    await this.handleWebSocketDisconnect(ws);
+  }
+
+  private async handleWebSocketDisconnect(ws: WebSocket): Promise<void> {
+    // Use attachment as fallback — webSocketError fires before webSocketClose on abnormal closes,
+    // deleting the session from the map before webSocketClose can process it
+    const session = this.sessions.get(ws) ?? (ws.deserializeAttachment() as SessionInfo | null);
     this.sessions.delete(ws);
 
     if (!session) return;
@@ -197,12 +207,11 @@ export class GameRoom extends DurableObject {
     if (!state) return;
 
     const player = state.players.find((p) => p.id === session.playerId);
-    if (player) {
+    if (player && player.connected) {
       player.connected = false;
       // Track disconnect time only during active game phases
       if (state.phase === 'bidding' || state.phase === 'partner' || state.phase === 'play') {
         state.disconnectTimers[player.seat] = Date.now();
-        // Set alarm for bot replacement only if no sooner alarm is already scheduled
         const botAlarmAt = Date.now() + 180000;
         const existingAlarm = await this.ctx.storage.getAlarm();
         if (!existingAlarm || existingAlarm > botAlarmAt) {
@@ -219,17 +228,12 @@ export class GameRoom extends DurableObject {
 
     const anyConnected = state.players.some((p) => p.connected);
     if (!anyConnected && !state.gameStartAt) {
-      // Only override with inactivity alarm if no bot-replacement alarm is pending
       const existingAlarm = await this.ctx.storage.getAlarm();
       const inactivityAlarmAt = Date.now() + 5 * 60 * 1000;
       if (!existingAlarm || existingAlarm > inactivityAlarmAt) {
         await this.ctx.storage.setAlarm(inactivityAlarmAt);
       }
     }
-  }
-
-  async webSocketError(ws: WebSocket): Promise<void> {
-    this.sessions.delete(ws);
   }
 
   async alarm(): Promise<void> {

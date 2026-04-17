@@ -1251,7 +1251,7 @@ function renderLobby(s) {
     const notRankedBadge = (s.groupId && p.isGroupMember === false && !p.isBot)
       ? '<span class="not-ranked-badge">⚠️ not ranked</span>'
       : '';
-    const kickBtn = (!s.isSpectator && (s.phase === 'lobby' || s.phase === 'gameover') && p.seat !== s.mySeat && !p.isBot)
+    const kickBtn = (!s.isSpectator && (s.phase === 'lobby' || s.phase === 'gameover') && p.seat !== s.mySeat)
       ? `<button class="kick-btn" onclick="send({type:'kickPlayer',seat:${p.seat}})">✕</button>`
       : '';
     // Make player name clickable for pinging if room is linked to Telegram and not self
