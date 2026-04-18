@@ -111,6 +111,7 @@
       <p id="lobby-status" class="status-text">Waiting for players...</p>
       <p id="lobby-countdown" class="status-text hidden"></p>
       <button id="lobby-start-btn" class="btn btn-primary hidden" onclick="send({type:'startGame'})">Start Game</button>
+      <button id="lobby-join-as-player" class="btn btn-primary hidden" onclick="send({type:'joinAsPlayer'})">Join as Player</button>
       <div class="inline-chat">
         <div class="inline-chat-log" id="lobby-chat-log"></div>
         <div class="chat-input-row">
@@ -246,6 +247,7 @@
       <p id="gameover-countdown" class="status-text hidden"></p>
       <div class="gameover-actions">
         <button id="btn-play-again" class="btn btn-primary">Play Again</button>
+        <button id="gameover-join-as-player" class="btn btn-primary hidden" onclick="send({type:'joinAsPlayer'})">Join as Player</button>
       </div>
       <div class="inline-chat">
         <div class="inline-chat-log" id="gameover-chat-log"></div>

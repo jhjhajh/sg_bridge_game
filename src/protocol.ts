@@ -14,6 +14,7 @@ export type ClientMessage =
   | { type: 'kickPlayer'; seat: number }
   | { type: 'startGame' }
   | { type: 'leaveSpectator' }
+  | { type: 'joinAsPlayer' }
   | { type: 'chat'; text: string }
   | { type: 'pingPlayer'; seat: number }
   | { type: 'initiateAbandon' }

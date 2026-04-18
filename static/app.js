@@ -1193,8 +1193,8 @@ function renderState() {
   updateBettingWidget(s);
   updateLeaveButtonLabel();
 
-  // Spectator hasn't chosen a player yet — show selection screen (only for unset, not for full board)
-  if (s.isSpectator && s.watchingSeat === -1) {
+  // Spectator hasn't chosen a player yet — show selection screen (only during active gameplay)
+  if (s.isSpectator && s.watchingSeat === -1 && s.phase !== 'lobby' && s.phase !== 'gameover') {
     showScreen('screen-spectator');
     renderSpectatorChoose(s);
     return;
@@ -1269,6 +1269,16 @@ function renderLobby(s) {
   const countdownEl = $('lobby-countdown');
   const startBtn = $('lobby-start-btn');
   const statusEl = $('lobby-status');
+  const joinAsPlayerBtn = $('lobby-join-as-player');
+
+  // Show "Join as Player" button for spectators when a seat is open
+  if (joinAsPlayerBtn) {
+    if (s.isSpectator && s.players.length < NUM_PLAYERS) {
+      joinAsPlayerBtn.classList.remove('hidden');
+    } else {
+      joinAsPlayerBtn.classList.add('hidden');
+    }
+  }
 
   // Waiting-for-others state: player pressed Play Again but not everyone has yet
   if (s.phase === 'gameover') {
@@ -2098,6 +2108,21 @@ function renderGameOver(s) {
 
   renderPlayerStatusBar($('gameover-players'), s.players);
   renderSpectatorBar(s);
+
+  // Show "Join as Player" button and hide "Play Again" for spectators when seat open
+  const gameoverJoinBtn = $('gameover-join-as-player');
+  const playAgainBtn = $('btn-play-again');
+  if (s.isSpectator) {
+    if (playAgainBtn) playAgainBtn.classList.add('hidden');
+    if (gameoverJoinBtn) {
+      if (s.players.length < NUM_PLAYERS) gameoverJoinBtn.classList.remove('hidden');
+      else gameoverJoinBtn.classList.add('hidden');
+    }
+  } else {
+    if (playAgainBtn) playAgainBtn.classList.remove('hidden');
+    if (gameoverJoinBtn) gameoverJoinBtn.classList.add('hidden');
+  }
+
   const title = $('gameover-title');
   const detail = $('gameover-detail');
   const scores = $('gameover-scores');
