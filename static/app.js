@@ -2111,15 +2111,15 @@ function renderGameOver(s) {
 
   // Show "Join as Player" button and hide "Play Again" for spectators when seat open
   const gameoverJoinBtn = $('gameover-join-as-player');
-  const playAgainBtn = $('btn-play-again');
+  const playAgainBtnEarly = $('btn-play-again');
   if (s.isSpectator) {
-    if (playAgainBtn) playAgainBtn.classList.add('hidden');
+    if (playAgainBtnEarly) playAgainBtnEarly.classList.add('hidden');
     if (gameoverJoinBtn) {
       if (s.players.length < NUM_PLAYERS) gameoverJoinBtn.classList.remove('hidden');
       else gameoverJoinBtn.classList.add('hidden');
     }
   } else {
-    if (playAgainBtn) playAgainBtn.classList.remove('hidden');
+    if (playAgainBtnEarly) playAgainBtnEarly.classList.remove('hidden');
     if (gameoverJoinBtn) gameoverJoinBtn.classList.add('hidden');
   }
 
