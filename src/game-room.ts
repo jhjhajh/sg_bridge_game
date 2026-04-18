@@ -156,6 +156,9 @@ export class GameRoom extends DurableObject {
       case 'leaveSpectator':
         await this.handleLeaveSpectator(state, session.playerId, ws);
         break;
+      case 'joinAsPlayer':
+        await this.handleJoinAsPlayer(state, session.playerId, ws);
+        break;
       case 'watchSeat':
         await this.handleWatchSeat(state, session.playerId, msg.seat, ws);
         break;
@@ -2764,26 +2767,47 @@ export class GameRoom extends DurableObject {
   private async handleLeaveSpectator(state: GameState, playerId: string, ws: WebSocket): Promise<void> {
     const idx = state.spectators.findIndex((s) => s.id === playerId);
     if (idx === -1) return;
+    state.spectators.splice(idx, 1);
+    this.sessions.delete(ws);
+    await this.saveState(state);
+    this.broadcastFullState(state);
+    try { ws.close(1000, 'left spectator mode'); } catch { /* already closed */ }
+  }
+
+  private async handleJoinAsPlayer(state: GameState, playerId: string, ws: WebSocket): Promise<void> {
+    if (state.phase !== 'lobby' && state.phase !== 'gameover') {
+      ws.send(JSON.stringify({ type: 'error', message: 'Can only join as player in lobby or after game over.' }));
+      return;
+    }
+    if (state.players.length >= NUM_PLAYERS) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Room is full.' }));
+      return;
+    }
+    const idx = state.spectators.findIndex((s) => s.id === playerId);
+    if (idx === -1) return;
 
     const spectator = state.spectators[idx];
+    state.spectators.splice(idx, 1);
 
-    if (state.phase === 'lobby' && state.players.length < NUM_PLAYERS) {
-      // Promote spectator to player
-      state.spectators.splice(idx, 1);
-      const seat = state.players.length;
-      const newPlayer = { id: playerId, name: spectator.name, seat, connected: true } as import('./types').Player;
-      await this.refreshPlayerStats(newPlayer, playerId);
-      state.players.push(newPlayer);
-      await this.saveState(state);
-      this.broadcastFullState(state);
-    } else {
-      // Remove spectator and close their connection
-      state.spectators.splice(idx, 1);
-      this.sessions.delete(ws);
-      await this.saveState(state);
-      this.broadcastFullState(state);
-      try { ws.close(1000, 'left spectator mode'); } catch { /* already closed */ }
+    const seat = state.players.length;
+    const newPlayer = { id: playerId, name: spectator.name, seat, connected: true } as import('./types').Player;
+    await this.refreshPlayerStats(newPlayer, playerId);
+    if (state.groupId && playerId.startsWith('tg_')) {
+      const tgId = Number(playerId.slice(3));
+      newPlayer.isGroupMember = await isChatMember(
+        (this.env as Env).TELEGRAM_BOT_TOKEN,
+        state.groupId,
+        tgId,
+      );
+    } else if (state.groupId) {
+      newPlayer.isGroupMember = false;
     }
+    state.players.push(newPlayer);
+
+    await this.saveState(state);
+    ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
+    this.broadcast({ type: 'joined', playerName: newPlayer.name, seat, playerCount: state.players.length });
+    this.broadcastFullState(state);
   }
 
   private handleChat(state: GameState, playerId: string, text: string): void {
