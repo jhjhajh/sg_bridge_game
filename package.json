@@ -7,7 +7,9 @@
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "test:e2e": "playwright test tests/ui/chat-live.pw.js tests/ui/chat-hand.pw.js",
+    "test:pr": "node tests/run-pr-checks.cjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4",

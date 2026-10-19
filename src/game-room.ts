@@ -10,6 +10,7 @@ import { sendMessage, isChatMember } from './telegram';
 import { recordGameStats, recordEloUpdate, type EloResult } from './stats-db';
 import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
 import { settleBetsAndUpdateElo } from './betting-db';
+import { CHAT_HISTORY_KEY, createChatHistory, readChatHistory, appendRoomMessage } from './chat-history';
 
 interface SessionInfo {
   playerId: string;
@@ -40,7 +41,7 @@ export class GameRoom extends DurableObject {
     if (url.pathname === '/create' && request.method === 'POST') {
       const { roomCode, groupId, groupName, origin } = (await request.json()) as { roomCode: string; groupId?: string | null; groupName?: string | null; origin?: string | null };
       const state = this.createInitialState(roomCode, groupId ?? null, groupName ?? null, origin ?? null);
-      await this.ctx.storage.put('state', state);
+      await this.ctx.storage.put({ state, [CHAT_HISTORY_KEY]: createChatHistory(roomCode) });
       return Response.json({ ok: true });
     }
 
@@ -130,6 +131,10 @@ export class GameRoom extends DurableObject {
     switch (msg.type) {
       case 'join':
         await this.handleJoin(state, session.playerId, msg.name, msg.joinAs, ws);
+        if (state.players.some(p => p.id === session.playerId) || state.spectators.some(s => s.id === session.playerId)) {
+          const history = await readChatHistory(this.ctx.storage, state.roomCode);
+          ws.send(JSON.stringify({ type: 'chatHistory', ...history } satisfies ServerMessage));
+        }
         break;
       case 'bid':
         await this.handleBid(state, session.playerId, msg.bidNum);
@@ -176,7 +181,7 @@ export class GameRoom extends DurableObject {
         await this.handleStartGame(state, session.playerId);
         break;
       case 'chat':
-        this.handleChat(state, session.playerId, msg.text);
+        await this.handleChat(state, session.playerId, msg.text);
         break;
       case 'pingPlayer':
         await this.handlePingPlayer(state, session.playerId, msg.seat, ws);
@@ -284,7 +289,7 @@ export class GameRoom extends DurableObject {
           player.botLevel = 'sophisticated';
           player.originalPlayerId = originalPlayerId;
           delete state.disconnectTimers[seat];
-          this.broadcast({ type: 'chat', name: 'System', seat: -1, text: `${originalPlayerName} was away for 90 seconds and has been replaced by a bot.` });
+          await this.persistChat(state, 'System', -1, `${originalPlayerName} was away for 90 seconds and has been replaced by a bot.`);
           // Tag the replaced player in Telegram so they know
           if (state.groupId && originalPlayerId.startsWith('tg_')) {
             const targetTgId = Number(originalPlayerId.slice(3));
@@ -2826,16 +2831,23 @@ export class GameRoom extends DurableObject {
     this.broadcastFullState(state);
   }
 
-  private handleChat(state: GameState, playerId: string, text: string): void {
+  private async handleChat(state: GameState, playerId: string, text: string): Promise<void> {
     const player = state.players.find((p) => p.id === playerId);
     const spectator = !player ? state.spectators.find((s) => s.id === playerId) : undefined;
     const sender = player ?? spectator;
     if (!sender) return;
-    const clean = String(text).trim().slice(0, 200);
+    if (typeof text !== 'string') return;
+    const clean = text.trim().slice(0, 200);
     if (!clean) return;
     const isSpectator = !player;
     const displayName = isSpectator ? `Spectator: ${sender.name}` : sender.name;
-    this.broadcast({ type: 'chat', name: displayName, seat: player?.seat ?? -1, text: clean });
+    await this.persistChat(state, displayName, player?.seat ?? -1, clean);
+  }
+
+  private async persistChat(state: GameState, name: string, seat: number, text: string): Promise<void> {
+    const { history, entry } = await appendRoomMessage(this.ctx.storage, state.roomCode, name, seat, text);
+    // Preserve the flat live fields understood by already-open older clients.
+    this.broadcast({ type: 'chat', roomCode: history.roomCode, epoch: history.epoch, ...entry });
   }
 
   private async handlePingPlayer(state: GameState, pingerId: string, targetSeat: number, senderWs: WebSocket): Promise<void> {

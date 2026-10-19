@@ -68,11 +68,40 @@ window.CardHand = (() => {
         focusout: event => { if (!container.contains(event.relatedTarget) && !this.gesture) this.select(-1); },
         contextmenu: event => event.preventDefault(),
       })) container.addEventListener(name, handler, { signal: this.abort.signal });
+      // Keep browser scrolling out of card gestures from their first contact.
+      // Use scoped, non-passive Touch Event fallbacks for browser scrolling;
+      // Pointer Events remain the only path that selects or plays a card.
+      container.addEventListener('touchstart', event => {
+        if (this.indexOf(event.target) >= 0 && event.cancelable) event.preventDefault();
+      }, { passive: false, signal: this.abort.signal });
+      container.addEventListener('touchmove', event => {
+        if (this.gesture?.touch && event.cancelable) event.preventDefault();
+      }, { passive: false, signal: this.abort.signal });
       this.resize = new ResizeObserver(() => this.layout());
       this.resize.observe(container);
       hands.add(this);
       this.layout();
       this.updateHint();
+    }
+
+    update(validSuits, onPlay) {
+      const legalityChanged = this.cards.some(card => card.classList.contains('disabled')
+        !== (!!validSuits && !validSuits.includes(card.dataset.suit)));
+      const availabilityChanged = !!this.onPlay !== !!onPlay;
+      const pendingCleared = !!onPlay && this.pending;
+      if (legalityChanged || availabilityChanged) this.cancel();
+      this.onPlay = onPlay;
+      // The app only re-enables play after authoritative state or an error.
+      // Unrelated updates while a request is pending must keep that lock.
+      if (onPlay && this.pending) this.pending = false;
+      this.container.dataset.interactive = String(!!onPlay);
+      this.container.setAttribute('aria-busy', String(this.pending));
+      for (const card of this.cards) {
+        const invalid = !!validSuits && !validSuits.includes(card.dataset.suit);
+        card.classList.toggle('disabled', invalid);
+        card.setAttribute('aria-disabled', String(invalid || !onPlay || this.pending));
+      }
+      if (legalityChanged || availabilityChanged || pendingCleared) this.updateHint();
     }
 
     dispose() {
@@ -307,6 +336,17 @@ window.CardHand = (() => {
   }
 
   function render(container, hand, suits, validSuits, onPlay) {
+    const values = suits.flatMap(suit => (hand?.[suit] || []).map(value => ({ value, suit })));
+    const existing = [...hands].find(controller => controller.container === container);
+    if (existing && existing.cards.length === values.length
+      && existing.hint.parentNode === container
+      && existing.cards.every((card, i) => card.parentNode === container
+        && card.dataset.value === values[i].value && card.dataset.suit === values[i].suit)) {
+      // Connection, bidding and other metadata updates do not redeal a hand.
+      // Preserve card nodes, settled positions, focus and an active gesture.
+      existing.update(validSuits, onPlay);
+      return;
+    }
     let focused;
     if (container.contains(document.activeElement)) focused = document.activeElement.dataset;
     hands.forEach(controller => { if (controller.container === container || !controller.container.isConnected) controller.dispose(); });

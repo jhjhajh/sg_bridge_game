@@ -1,4 +1,5 @@
 import type { PlayerGameView, Suit } from './types';
+import type { ChatEntry, ChatHistory } from './chat-history';
 
 export type ClientMessage =
   | { type: 'join'; name: string; joinAs?: 'player' | 'spectator' }
@@ -39,7 +40,8 @@ export type ServerMessage =
   | { type: 'playerReconnected'; seat: number; name: string }
   | { type: 'kicked'; reason: string }
   | { type: 'playerKicked'; seat: number; name: string }
-  | { type: 'chat'; name: string; seat: number; text: string }
+  | ({ type: 'chat'; roomCode: string; epoch: string } & ChatEntry)
+  | ({ type: 'chatHistory' } & ChatHistory)
   | { type: 'playerPinged'; pinger: string; seat: number }
   | { type: 'abandonVoteStarted'; initiatorSeat: number; initiatorName: string }
   | { type: 'abandonVotePassed' }
