@@ -7,6 +7,7 @@ const assets = {
   '/': ['index.html', 'text/html'],
   '/style.css': ['style.css', 'text/css'],
   '/app.js': ['app.js', 'text/javascript'],
+  '/hand.js': ['hand.js', 'text/javascript'],
 };
 
 exports.createServer = () => http.createServer(async (request, response) => {

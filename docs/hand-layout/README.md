@@ -1,5 +1,9 @@
 # Desktop hand layout evidence
 
+Historical evidence for PR #67. The behavior and capture commands below describe
+that version. Current fan layout, interactions, tests, and recording instructions
+are documented in [hand-fan](../hand-fan/README.md).
+
 At desktop viewport widths (768px and up), bidding, partner selection, and play
 use panels up to 860px wide. Suit groups share the available width and cards can
 shrink slightly, retaining the existing 6px overlap, font sizes, and a 44px minimum

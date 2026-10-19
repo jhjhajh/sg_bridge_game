@@ -38,6 +38,8 @@ let joinAs = null;  // 'player' or 'spectator' for joining via invite
 let reconnectTimer = null;
 let reconnectDelay = 2000;
 let gameState = null;
+let pendingPlay = null;
+let awaitingGameState = true;
 let lastGameOver = null;
 let prevTurn = -1;
 let lobbyCountdownTimer = null;
@@ -1009,23 +1011,7 @@ function createCardEl(value, suit, opts = {}) {
 }
 
 function renderHand(container, hand, validSuits, onClick) {
-  container.innerHTML = '';
-  if (!hand) return;
-  for (const suit of CARD_SUITS) {
-    const values = hand[suit] || [];
-    if (values.length === 0) continue;
-    const group = document.createElement('div');
-    group.className = 'suit-group';
-    for (const value of values) {
-      const disabled = validSuits ? !validSuits.includes(suit) : false;
-      const card = createCardEl(value, suit, {
-        disabled,
-        onClick: onClick ? () => onClick(value, suit) : null,
-      });
-      group.appendChild(card);
-    }
-    container.appendChild(group);
-  }
+  CardHand.render(container, hand, CARD_SUITS, validSuits, onClick);
 }
 
 function getBidFromNum(num) {
@@ -1070,6 +1056,9 @@ function connect() {
   };
 
   ws.onclose = () => {
+    awaitingGameState = true;
+    pendingPlay = null;
+    CardHand.cancelAll();
     if (roomCode) {
       $('overlay-reconnect').classList.remove('hidden');
       clearTimeout(reconnectTimer);
@@ -1220,10 +1209,17 @@ function playLoseSound() {
 function handleMessage(msg) {
   switch (msg.type) {
     case 'state':
+      awaitingGameState = false;
+      if (pendingPlay && (msg.state.phase !== 'play' || msg.state.gameId !== pendingPlay.gameId
+        || msg.state.mySeat !== pendingPlay.seat || msg.state.turn !== pendingPlay.seat
+        || !msg.state.hand?.[pendingPlay.suit]?.includes(pendingPlay.value))) pendingPlay = null;
       gameState = msg.state;
       renderState();
       break;
     case 'error':
+      pendingPlay = null;
+      CardHand.cancelAll();
+      renderState();
       alert(msg.message);
       break;
     case 'joined':
@@ -2206,11 +2202,24 @@ function renderPlay(s) {
   if (isMyTurn && s.hand) {
     validSuits = getValidSuitsClient(s.hand, s.trumpSuit, s.currentSuit, s.trumpBroken);
   }
-  renderHand($('play-hand'), s.hand, isMyTurn ? validSuits : CARD_SUITS, isMyTurn ? onPlayCard : null);
+  renderHand($('play-hand'), s.hand, isMyTurn ? validSuits : CARD_SUITS,
+    isMyTurn && !pendingPlay && !awaitingGameState && !s.trickComplete ? onPlayCard : null);
 }
 
 function onPlayCard(value, suit) {
-  send({ type: 'playCard', card: `${value} ${suit}` });
+  const s = gameState;
+  if (!s || s.phase !== 'play' || s.isSpectator || s.turn !== s.mySeat || s.trickComplete
+    || pendingPlay || awaitingGameState || ws?.readyState !== WebSocket.OPEN
+    || s.playedCards[s.mySeat] || !s.hand?.[suit]?.includes(value)
+    || !getValidSuitsClient(s.hand, s.trumpSuit, s.currentSuit, s.trumpBroken).includes(suit)) return false;
+  pendingPlay = { value, suit, seat: s.mySeat, gameId: s.gameId };
+  try {
+    ws.send(JSON.stringify({ type: 'playCard', card: `${value} ${suit}` }));
+    return true;
+  } catch {
+    pendingPlay = null;
+    return false;
+  }
 }
 
 function getValidSuitsClient(hand, trumpSuit, currentSuit, trumpBroken) {
@@ -2654,6 +2663,9 @@ function buildHashWithId(room) {
 }
 
 function leaveGame() {
+  pendingPlay = null;
+  awaitingGameState = true;
+  CardHand.cancelAll();
   clearTimeout(reconnectTimer);
   if (ws) {
     ws.onclose = null;
