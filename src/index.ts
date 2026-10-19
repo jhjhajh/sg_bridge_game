@@ -5,6 +5,7 @@ import { sendMessage, parseUpdate } from './telegram';
 import { getPlayerStats, getPairStats } from './stats-db';
 import { placeBet, getUserBet, getBettingLeaderboard } from './betting-db';
 import { listUserGames, getGameReplay } from './history';
+import { normalizePlayerName, telegramDisplayName, UNNAMED_TELEGRAM_USER } from './player-name';
 
 export { GameRoom } from './game-room';
 
@@ -45,25 +46,26 @@ export default {
       await upsertUser(env.DB, telegramId, displayName);
       const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
       const token = await signJwt({ sub: String(telegramId), name: displayName, exp }, env.JWT_SECRET);
-      return Response.json({ token, displayName });
+      return Response.json({ token, displayName, telegramId, nameRequired: false });
     }
 
     // Telegram Login Widget callback → verify, upsert user, return JWT
     if (url.pathname === '/api/auth/telegram' && request.method === 'POST') {
-      const body = await request.json<Record<string, string | number>>();
+      const body = await request.json<Record<string, string | number>>().catch(() => null);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid Telegram auth' }, { status: 400 });
       const valid = await verifyTelegramAuth(body, env.TELEGRAM_BOT_TOKEN);
       if (!valid) return Response.json({ error: 'Invalid Telegram auth' }, { status: 401 });
 
       const telegramId = Number(body.id);
-      const firstName = String(body.first_name ?? '');
-      const lastName = body.last_name ? ` ${body.last_name}` : '';
-      const displayName = (firstName + lastName).trim() || String(body.username ?? telegramId);
+      if (!Number.isSafeInteger(telegramId) || telegramId <= 0) return Response.json({ error: 'Invalid Telegram identity' }, { status: 400 });
+      const telegramName = telegramDisplayName(body);
+      const displayName = telegramName || UNNAMED_TELEGRAM_USER;
 
       await upsertUser(env.DB, telegramId, displayName);
 
       const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 30 days
       const token = await signJwt({ sub: String(telegramId), name: displayName, exp }, env.JWT_SECRET);
-      return Response.json({ token, displayName });
+      return Response.json({ token, displayName, telegramId, nameRequired: !telegramName });
     }
 
     // Get authenticated user's profile
@@ -72,15 +74,17 @@ export default {
       if (!claims) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       const user = await getUser(env.DB, Number(claims.sub));
       if (!user) return Response.json({ error: 'Not found' }, { status: 404 });
-      return Response.json({ telegramId: user.telegram_id, displayName: user.display_name });
+      const displayName = normalizePlayerName(user.display_name) || normalizePlayerName(claims.name);
+      if (displayName && displayName !== user.display_name) await updateDisplayName(env.DB, user.telegram_id, displayName);
+      return Response.json({ telegramId: user.telegram_id, displayName, nameRequired: !displayName || displayName === UNNAMED_TELEGRAM_USER });
     }
 
     // Update authenticated user's display name
     if (url.pathname === '/api/me' && request.method === 'PATCH') {
       const claims = await getAuthClaims(request, env.JWT_SECRET);
       if (!claims) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      const body = await request.json<{ displayName?: string }>();
-      const name = body.displayName?.trim();
+      const body = await request.json<{ displayName?: unknown }>().catch(() => null);
+      const name = normalizePlayerName(body?.displayName);
       if (!name) return Response.json({ error: 'displayName required' }, { status: 400 });
       await updateDisplayName(env.DB, Number(claims.sub), name);
       return new Response(null, { status: 204 });

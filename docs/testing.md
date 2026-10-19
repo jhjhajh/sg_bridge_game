@@ -36,7 +36,9 @@ assets, local schema migrations, and temporary room storage. It substitutes
 only unrelated HTTP auth/leaderboard requests in browser tests. Gameplay,
 room joins, card legality and all chat frames use the actual server. No
 Telegram messages are sent. The static interaction suites use **4184**, **4186**,
-**4208**, **4212** and **4214**. Keep those ports free and run one suite at a time.
+**4208**, **4212** and **4214**. Identity E2E uses **4216** with actual signed
+synthetic auth, profile requests and WebSockets. Keep those ports free and run
+one suite at a time.
 
 Focused iteration:
 
