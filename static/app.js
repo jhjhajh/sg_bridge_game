@@ -1699,7 +1699,9 @@ function renderLobby(s) {
     const nameHtml = canPing
       ? `<button class="lobby-player-name ping-btn" onclick="pingPlayer(${p.seat})">${esc(p.name)}</button>`
       : `<span class="lobby-player-name">${esc(p.name)}</span>`;
-    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}${botIcon}${nameHtml}${statsHtml}${notRankedBadge}${kickBtn}`;
+    item.innerHTML = `<span class="seat-num">${p.seat + 1}</span>${statusDot(p.connected)}<div class="lobby-identity">${botIcon}${nameHtml}</div><div class="lobby-meta">${statsHtml}${notRankedBadge}</div><div class="lobby-action">${kickBtn}</div>`;
+    item.querySelector('.kick-btn')?.setAttribute('aria-label', `Remove ${p.name}`);
+    item.querySelector('.ping-btn')?.setAttribute('aria-label', `Ping ${p.name}`);
     list.appendChild(item);
   }
   const remaining = NUM_PLAYERS - s.players.length;

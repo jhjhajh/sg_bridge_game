@@ -95,7 +95,7 @@ body[data-table-view="25d"] .game-info-bar {
   font-size: 0.85rem;
 }
 
-/* Only the decorative plane is tilted. Labels and hit targets stay upright. */
+/* The felt and native drop surface tilt together; labels stay upright. */
 body[data-table-view="25d"] .table {
   isolation: isolate;
   aspect-ratio: 1.9;
@@ -108,8 +108,7 @@ body[data-table-view="25d"] .table {
   background: transparent;
   box-shadow: none;
 }
-body[data-table-view="25d"] .table::after {
-  content: '';
+body[data-table-view="25d"] .table-surface {
   position: absolute;
   z-index: -2;
   inset: 9% 3% 12%;
@@ -123,7 +122,11 @@ body[data-table-view="25d"] .table::after {
     inset 0 0 0 2px #b6a17a66, inset 0 0 0 7px #0e323a, inset 0 0 30px #0006;
   pointer-events: none;
 }
-body[data-table-view="25d"] .table.practice::after {
+body[data-table-view="25d"] .table-surface .card-drop-zone {
+  /* Inner felt curve follows the rim's padding edge, in the same plane. */
+  border-radius: calc(42% - 1.92px);
+}
+body[data-table-view="25d"] .table.practice .table-surface {
   background: radial-gradient(ellipse at 50% 40%, #594077, #2c2145 70%);
 }
 body[data-table-view="25d"] .table::before {
@@ -177,7 +180,8 @@ body[data-table-view="25d"] .gameover-container.outcome-loss { border-color: #df
   body[data-table-view="25d"] .play-container { padding: 16px 10px; }
   body[data-table-view="25d"] { background-attachment: scroll; }
   body[data-table-view="25d"] .table { aspect-ratio: 1.12; min-height: 300px; }
-  body[data-table-view="25d"] .table::after { inset: 11% 3% 13%; border-width: 9px; transform: perspective(700px) rotateX(17deg); }
+  body[data-table-view="25d"] .table-surface { inset: 11% 3% 13%; border-width: 9px; transform: perspective(700px) rotateX(17deg); }
+  body[data-table-view="25d"] .table-surface .card-drop-zone { border-radius: calc(42% - 1.44px); }
   body[data-table-view="25d"] .seat-label { min-width: 64px; max-width: 86px; padding: 6px; }
   body[data-table-view="25d"] .seat-name-row { max-width: 72px; }
   body[data-table-view="25d"] :is(.seat-left, .seat-right) .seat-label { width: 72px; min-width: 0; }
