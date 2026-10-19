@@ -882,14 +882,17 @@ body.has-spectators .screen {
   border-width: 1.5px;
   border-radius: 8px;
   z-index: var(--card-order);
-  transform: rotate(var(--card-angle, 0deg));
+  transform: rotate(var(--card-angle, 0deg)) translateY(0);
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
-.card-hand .hand-card.red, .hand-preview.red { color: var(--red-suit); }
-.card-hand .hand-card:hover { z-index: var(--card-order); transform: rotate(var(--card-angle, 0deg)); box-shadow: var(--card-shadow); }
-.card-hand .hand-card.is-selected {
+.card-hand .hand-card.red { color: var(--red-suit); }
+.card-hand .hand-card:hover { z-index: var(--card-order); transform: rotate(var(--card-angle, 0deg)) translateY(0); box-shadow: var(--card-shadow); }
+/* Slide along the card's own axis so its side edge keeps the neighboring
+   indices exposed. Preserve the arc position, rotation and stacking order. */
+.card-hand.hand-fan .hand-card.is-selected {
+  transform: rotate(var(--card-angle, 0deg)) translateY(calc(-1 * var(--hand-lift, 8px)));
   box-shadow: 0 0 0 2px var(--accent-light), 0 4px 10px rgba(0,0,0,0.3);
 }
 .card-hand .hand-card.disabled { opacity: 0.45; pointer-events: auto; }
@@ -905,32 +908,12 @@ body.has-spectators .screen {
   line-height: 1.1;
   font-weight: 700;
 }
-.hand-preview {
-  position: fixed;
-  width: var(--preview-width, 90px);
-  height: var(--preview-height, 126px);
-  background: #fff;
-  color: #2d3436;
-  border: 2px solid var(--accent-light);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-  display: flex; align-items: center; justify-content: center;
-  font-family: inherit;
-  font-size: clamp(1.2rem, 5vw, 1.7rem);
-  font-weight: 700;
-  line-height: 1.1;
-  pointer-events: none;
-  z-index: 950;
-}
-.hand-preview .card-corner { position: static; font-size: inherit; }
-.hand-preview .card-value { font-size: 1em; }
-.hand-preview .card-suit { font-size: 1.1em; }
 .hand-help {
   position: absolute; bottom: 2px; left: 0; right: 0;
   color: var(--text-dim); font-size: 0.72rem; text-align: center;
   pointer-events: none;
 }
-.hand-preview.swipe-ready { border-color: var(--success); box-shadow: 0 0 0 2px var(--success); }
+.card-hand.hand-fan.swipe-ready .hand-card.is-selected { box-shadow: 0 0 0 2px var(--success), 0 4px 10px rgba(0,0,0,0.3); }
 .swipe-ready .hand-help { color: var(--success); }
 @media (prefers-reduced-motion: reduce) {
   .card-hand .hand-card { transition: none; }

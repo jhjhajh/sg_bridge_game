@@ -54,12 +54,7 @@ window.CardHand = (() => {
       this.hint.id = `${id}-help`;
       this.hint.className = 'hand-help';
       container.setAttribute('aria-describedby', this.hint.id);
-      this.preview = document.createElement('div');
-      this.preview.className = 'hand-preview hidden';
-      this.preview.id = `${id}-preview`;
-      this.preview.setAttribute('aria-hidden', 'true');
       container.appendChild(this.hint);
-      document.body.appendChild(this.preview);
       for (const [name, handler] of Object.entries({
         pointerdown: event => this.down(event), pointermove: event => this.move(event),
         pointerup: event => this.up(event), pointercancel: () => this.cancel(),
@@ -84,7 +79,6 @@ window.CardHand = (() => {
       this.cancel();
       this.resize.disconnect();
       this.abort.abort();
-      this.preview.remove();
       hands.delete(this);
     }
 
@@ -124,6 +118,7 @@ window.CardHand = (() => {
       const originalFont = count ? parseFloat(getComputedStyle(this.cards[0]).fontSize) : 16;
       this.container.style.setProperty('--hand-card-width', `${this.cardWidth}px`);
       this.container.style.setProperty('--corner-inset', compact ? '1px' : '2px');
+      this.container.style.setProperty('--hand-lift', compact ? '4px' : '8px');
       // Leave room for the border, inset and both digits of "10" as the next
       // card's slanted edge approaches the lower part of the index.
       this.container.style.setProperty('--corner-font', `${Math.min(originalFont, Math.max(11.8, (cornerStep - 5) / 1.3))}px`);
@@ -141,60 +136,12 @@ window.CardHand = (() => {
       if (index === this.selected && index >= 0) { this.updateHint(); return; }
       this.selected = index;
       this.cards.forEach((card, i) => card.classList.toggle('is-selected', i === index));
-      const visible = index >= 0 && !!this.positions?.[index] && this.width > 0;
-      this.preview.classList.toggle('hidden', !visible);
-      if (visible) {
-        const card = this.cards[index];
-        this.preview.classList.toggle('red', card.classList.contains('red'));
-        this.preview.classList.toggle('black', card.classList.contains('black'));
-        this.preview.replaceChildren(...[...card.children].map(child => child.cloneNode(true)));
-        this.placePreview(index);
-      }
       this.updateHint();
-    }
-
-    placePreview(index) {
-      const bounds = this.container.getBoundingClientRect();
-      const width = Math.min(90, innerWidth - 16);
-      const font = parseFloat(getComputedStyle(this.preview).fontSize);
-      const minimumHeight = Math.ceil(font * 2.1 + 18);
-      // Corners remain readable and actionable controls remain visible. In a
-      // short viewport the lens may be compact, while keeping the original type.
-      const selectors = '.hand-card .card-corner, .hand-help, #top-bar, .screen.active button:not(.hand-card), '
-        + '.screen.active h1, .screen.active h2, .screen.active h3, .screen.active p, '
-        + '.screen.active input, .screen.active select, .screen.active a, .screen.active .seat-label, '
-        + '.screen.active .game-info-bar, .screen.active .trick-card .card-mini, .screen.active .last-trick-panel, '
-        + '.screen.active .bid-info, .screen.active #partner-status, .screen.active .player-status-bar';
-      const obstacles = [...document.querySelectorAll(selectors)].map(element => element.getBoundingClientRect())
-        .filter(rect => rect.width && rect.height && rect.bottom > 0 && rect.top < innerHeight);
-      const clampX = x => Math.max(8, Math.min(innerWidth - width - 8, x));
-      const xs = [...new Set([clampX(bounds.left + this.positions[index].x - width / 2),
-        clampX(bounds.left + 8), clampX(bounds.right - width - 8), clampX((innerWidth - width) / 2),
-        8, innerWidth - width - 8])];
-      const heights = [...new Set([width * 1.4, Math.max(minimumHeight, 100), Math.max(minimumHeight, 80), minimumHeight])];
-      for (const height of heights) {
-        const ys = [bounds.top + 10 - height, bounds.top + this.fanBottom + 8];
-        for (let y = 8; y <= innerHeight - height - 8; y += 10) ys.push(y);
-        for (const y of ys) for (const x of xs) {
-          if (y < 8 || y + height > innerHeight - 8) continue;
-          if (obstacles.some(rect => x < rect.right + 3 && x + width > rect.left - 3
-            && y < rect.bottom + 3 && y + height > rect.top - 3)) continue;
-          this.preview.style.setProperty('--preview-width', `${width}px`);
-          this.preview.style.setProperty('--preview-height', `${height}px`);
-          this.preview.style.left = `${x}px`;
-          this.preview.style.top = `${y}px`;
-          return;
-        }
-      }
-      // An unusually small/occluded viewport can be scrolled into a usable view;
-      // never cover an action or another card's index just to display a lens.
-      this.preview.classList.add('hidden');
     }
 
     updateHint(ready = false) {
       const card = this.cards[this.selected];
       this.container.classList.toggle('swipe-ready', ready);
-      this.preview.classList.toggle('swipe-ready', ready);
       this.hint.textContent = !this.cards.length ? 'Your hand is empty' : this.pending ? 'Playing…'
         : !this.onPlay ? 'Slide or hover to inspect your cards'
           : card?.classList.contains('disabled') ? 'This card cannot be played'

@@ -4,6 +4,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const assets = {
+  '/view.js': ['view.js', 'text/javascript'],
+  '/view.css': ['view.css', 'text/css'],
   '/': ['index.html', 'text/html'],
   '/style.css': ['style.css', 'text/css'],
   '/app.js': ['app.js', 'text/javascript'],

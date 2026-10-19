@@ -39,12 +39,14 @@ async function showHand(page, screen = 'play', counts = fullHand, overrides = {}
     ws = { readyState: WebSocket.OPEN, send: message => window.sentCards.push(JSON.parse(message)), close() {} };
     prevTurn = 0;
     playerName = 'Alex';
+    roomCode = 'DEMO';
     handleMessage({ type: 'state', state });
   }, { screen, hand, overrides, gameId: `fixture-${++gameNumber}` });
   await page.mouse.move(0, 0);
   const container = page.locator(`#${screen}-hand`);
   if (await container.isVisible()) await container.scrollIntoViewIfNeeded();
   await page.evaluate(() => new Promise(requestAnimationFrame));
+  await container.evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))));
   return container;
 }
 
@@ -89,6 +91,28 @@ async function expectHandFits(hand, count) {
     expect(card.inside).toBe(true);
     expect(card.glyphsVisible, JSON.stringify({ count, client: layout.client, index: layout.cards.indexOf(card), card })).toBe(true);
   }
+}
+
+async function expectLift(page, hand, index) {
+  const card = hand.locator('.hand-card').nth(index);
+  await expect(card).toHaveClass(/is-selected/);
+  await expect.poll(() => card.evaluate(el => new DOMMatrix(getComputedStyle(el).transform).f)).toBeLessThan(-3);
+  const motion = await card.evaluate(el => {
+    const matrix = new DOMMatrix(getComputedStyle(el).transform);
+    return { distance: Math.hypot(matrix.e, matrix.f), dx: matrix.e,
+      scale: matrix.a * matrix.d - matrix.b * matrix.c,
+      angle: Math.atan2(matrix.b, matrix.a) * 180 / Math.PI,
+      originalAngle: parseFloat(el.style.getPropertyValue('--card-angle')),
+      order: getComputedStyle(el).zIndex };
+  });
+  expect(motion.distance).toBeGreaterThanOrEqual(3);
+  expect(motion.distance).toBeLessThanOrEqual(10);
+  expect(Math.abs(motion.dx)).toBeLessThanOrEqual(4);
+  expect(motion.scale).toBeCloseTo(1, 3);
+  expect(motion.angle).toBeCloseTo(motion.originalAngle, 3);
+  expect(motion.order).toBe(String(index));
+  await expect(page.locator('.hand-preview')).toHaveCount(0);
+  await expectHandFits(hand, await hand.locator('.hand-card').count());
 }
 
 async function point(page, index, id = 'play-hand') {
@@ -179,7 +203,7 @@ test('keyboard focus keeps every neighboring rank and suit exposed', async ({ pa
     const hand = await showHand(page);
     for (const index of [0, 6, 12]) {
       await hand.locator('.hand-card').nth(index).focus();
-      await expectHandFits(hand, 13);
+      await expectLift(page, hand, index);
     }
   }
 });
@@ -193,17 +217,20 @@ test('nested narrow panels preserve full-hand indices without smaller cards', as
     await page.evaluate(() => new Promise(requestAnimationFrame));
     await showHand(page, 'play', counts);
     await expectHandFits(hand, 13);
+    for (const index of [0, 6, 12]) {
+      await hand.locator('.hand-card').nth(index).focus();
+      await expectLift(page, hand, index);
+    }
   }
 });
 
-test('magnifiers keep screen headings and instructions clear in every phase', async ({ page }) => {
+test('in-place lifts keep screen headings and instructions clear in every phase', async ({ page }) => {
   for (const screen of ['bidding', 'partner', 'play']) {
     await page.setViewportSize({ width: 390, height: screen === 'partner' ? 1100 : 1000 });
     const hand = await showHand(page, screen);
     await hand.locator('.hand-card').first().focus();
-    const preview = page.locator(`#${screen}-hand-preview`);
-    await expect(preview).toBeVisible();
-    const covered = await preview.evaluate(el => {
+    await expectLift(page, hand, 0);
+    const covered = await hand.locator('.hand-card').first().evaluate(el => {
       const p = el.getBoundingClientRect();
       return [...document.querySelectorAll('.screen.active h1, .screen.active h2, .screen.active h3, .screen.active p')]
         .filter(text => {
@@ -250,16 +277,20 @@ test('spectator full-board fans fit and cannot play', async ({ page }) => {
   }
 });
 
-for (const width of [768, 1024]) test(`desktop hover magnifies and each exposed card clicks once at ${width}px`, async ({ page }) => {
+for (const width of [768, 1024]) test(`desktop hover lifts in place and each exposed card clicks once at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   for (let i = 0; i < 13; i++) {
     const hand = await showHand(page);
     const card = hand.locator('.hand-card').nth(i);
     const expected = await card.evaluate(el => `${el.dataset.value} ${el.dataset.suit}`);
+    const resting = await card.boundingBox();
     const p = await point(page, i);
     await page.mouse.move(p.x, p.y);
-    await expect(page.locator('#play-hand-preview')).toBeVisible();
-    expect((await page.locator('#play-hand-preview').boundingBox()).width).toBeGreaterThan(await card.evaluate(el => el.offsetWidth));
+    await expectLift(page, hand, i);
+    const lifted = await card.boundingBox();
+    expect(Math.abs(lifted.x - resting.x)).toBeLessThanOrEqual(4);
+    expect(resting.y - lifted.y).toBeGreaterThan(3);
+    expect(resting.y - lifted.y).toBeLessThanOrEqual(10);
     await page.mouse.click(p.x, p.y);
     await page.mouse.click(p.x, p.y);
     expect(await sent(page)).toEqual([{ type: 'playCard', card: expected }]);
@@ -281,7 +312,7 @@ test('keyboard arrows, Home/End, Escape and Enter/Space are accessible', async (
   await hand.locator('.hand-card').first().focus();
   await page.keyboard.press('ArrowRight'); await expect(hand.locator('.hand-card').nth(1)).toBeFocused();
   await page.keyboard.press('End'); await expect(hand.locator('.hand-card').last()).toBeFocused();
-  await page.keyboard.press('Escape'); await expect(page.locator('#play-hand-preview')).toBeHidden();
+  await page.keyboard.press('Escape'); await expect(hand.locator('.is-selected')).toHaveCount(0);
   await page.keyboard.press('Home'); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
   expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♣' }]);
   await showHand(page); await hand.locator('.hand-card').first().focus(); await page.keyboard.press('Space');
@@ -321,9 +352,9 @@ test.describe('real touch and hybrid pointer flows', () => {
   test.use({ hasTouch: true });
   test.beforeEach(async ({ page }) => page.setViewportSize({ width: 390, height: 844 }));
 
-  test('tap selects and magnifies; release and compatibility clicks never play', async ({ page }) => {
+  test('tap selects and lifts in place; release and compatibility clicks never play', async ({ page }) => {
     const hand = await showHand(page); const p = await point(page, 0);
-    await page.touchscreen.tap(p.x, p.y); await expect(page.locator('#play-hand-preview')).toBeVisible();
+    await page.touchscreen.tap(p.x, p.y); await expectLift(page, hand, 0);
     await hand.locator('.hand-card').first().dispatchEvent('click', { detail: 1 });
     await hand.locator('.hand-card').first().dispatchEvent('click', { detail: 0 });
     expect(await sent(page)).toEqual([]);
@@ -335,6 +366,22 @@ test.describe('real touch and hybrid pointer flows', () => {
     await page.evaluate(() => handleMessage({ type: 'state', state: { ...gameState } }));
     await page.locator('#play-hand .hand-card').first().dispatchEvent('click', { detail: 0 });
     expect(await sent(page)).toEqual([]);
+  });
+  test('switching view cancels an armed swipe without playing or replacing game state', async ({ page }) => {
+    const hand = await showHand(page); const p = await point(page, 0);
+    await page.evaluate(() => { window.beforeToggleState = gameState; window.beforeToggleSocket = ws; });
+    const session = await page.context().newCDPSession(page);
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...p, id: 1 }] });
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: p.x, y: p.y - 72, id: 1 }] });
+    await expect(hand).toHaveClass(/swipe-ready/);
+    const mode = await page.locator('body').getAttribute('data-table-view') === '25d' ? 'classic' : '25d';
+    await page.locator(`#top-bar [data-table-view="${mode}"]`).click();
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await session.detach();
+    await expect(hand).not.toHaveClass(/swipe-ready/);
+    expect(await sent(page)).toEqual([]);
+    expect(await page.evaluate(() => gameState === window.beforeToggleState && ws === window.beforeToggleSocket)).toBe(true);
+    await expect(hand.locator('.hand-card')).toHaveCount(13);
   });
   test('hold, slide to another card, then swipe up plays the newly selected card once', async ({ page }) => {
     await showHand(page); const start = await point(page, 0); const target = await point(page, 7);
@@ -392,19 +439,19 @@ test.describe('real touch and hybrid pointer flows', () => {
     expect(await sent(page)).toEqual([{ type: 'playCard', card: 'K ♣' }]);
   });
   for (const viewport of [{ width: 320, height: 740 }, { width: 844, height: 390 }]) {
-    test(`magnifier stays on screen without covering corners at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    test(`lift stays on screen without covering corners at ${viewport.width}×${viewport.height}`, async ({ page }) => {
       await page.setViewportSize(viewport);
       const hand = await showHand(page);
       for (const index of [0, 6, 12]) {
         const p = await point(page, index);
         await page.touchscreen.tap(p.x, p.y);
-        const preview = await page.locator('#play-hand-preview').boundingBox();
-        expect(preview).not.toBeNull();
-        expect(preview.x).toBeGreaterThanOrEqual(0);
-        expect(preview.y).toBeGreaterThanOrEqual(0);
-        expect(preview.x + preview.width).toBeLessThanOrEqual(viewport.width);
-        expect(preview.y + preview.height).toBeLessThanOrEqual(viewport.height);
-        const blocked = await page.locator('#play-hand-preview').evaluate(el => {
+        await expectLift(page, hand, index);
+        const lifted = await hand.locator('.hand-card').nth(index).boundingBox();
+        expect(lifted.x).toBeGreaterThanOrEqual(0);
+        expect(lifted.y).toBeGreaterThanOrEqual(0);
+        expect(lifted.x + lifted.width).toBeLessThanOrEqual(viewport.width);
+        expect(lifted.y + lifted.height).toBeLessThanOrEqual(viewport.height);
+        const blocked = await hand.locator('.hand-card').nth(index).evaluate(el => {
           const p = el.getBoundingClientRect();
           return [...document.querySelectorAll('#top-bar, .screen.active button:not(.hand-card), .screen.active .seat-label, .screen.active .game-info-bar')]
             .filter(control => {
@@ -426,8 +473,9 @@ test.describe('real touch and hybrid pointer flows', () => {
 test('capture review screenshots', async ({ page, browser }) => {
   const version = process.env.HAND_FAN_CAPTURE;
   test.skip(!version, 'Set HAND_FAN_CAPTURE=before or after for review screenshots.');
-  const directory = path.join(__dirname, '../../docs/hand-fan'); await fs.mkdir(directory, { recursive: true });
-  for (const [screen, width, height] of [['play', 320, 740], ['play', 390, 844], ['play', 844, 390], ['play', 1024, 900], ['bidding', 390, 1000], ['partner', 390, 1100]]) {
+  const mode = process.env.HAND_TABLE_VIEW === '25d' ? '25d' : 'classic';
+  const directory = path.join(__dirname, '../../docs/combined-ui', mode); await fs.mkdir(directory, { recursive: true });
+  for (const [screen, width, height] of [['play', 320, 740], ['play', 390, 844], ['play', 844, 390], ['play', 1024, 900], ['play', 1366, 900], ['bidding', 390, 1000], ['partner', 390, 1100]]) {
     const coarse = width < 768 || height < 500;
     const context = coarse ? await browser.newContext({ viewport: { width, height }, hasTouch: true }) : null;
     const capture = context ? await context.newPage() : page;
@@ -444,7 +492,7 @@ test('capture review screenshots', async ({ page, browser }) => {
     }
     await capture.waitForTimeout(150);
     // Full-page resizing can cancel hover; keep the desktop after image at its
-    // actual viewport so the selected-card lens is captured too.
+    // actual viewport so the selected card stays lifted in the capture.
     await capture.screenshot({ path: path.join(directory, `${version}-${screen}-${width}.png`),
       fullPage: height >= 500 && !(version === 'after' && !coarse) });
     if (context) await context.close();
@@ -453,11 +501,14 @@ test('capture review screenshots', async ({ page, browser }) => {
 
 test('record synthetic touch interaction', async ({ browser }) => {
   test.skip(!process.env.HAND_FAN_RECORD, 'Opt-in actual browser recording.');
-  const directory = path.join(__dirname, '../../docs/hand-fan'); await fs.mkdir(directory, { recursive: true });
+  const mode = process.env.HAND_TABLE_VIEW === '25d' ? '25d' : 'classic';
+  const directory = path.join(__dirname, '../../docs/combined-ui', mode); await fs.mkdir(directory, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true,
     recordVideo: { dir: path.join(directory, 'recording'), size: { width: 390, height: 844 } } });
   const page = await context.newPage(); await initializePage(page); await showHand(page); await page.waitForTimeout(600);
   const start = await point(page, 0); await page.touchscreen.tap(start.x, start.y); await page.waitForTimeout(800);
+  await expect(page.locator('#play-hand .hand-card.is-selected')).toHaveAttribute('data-value', 'A');
+  await expect(page.locator('.hand-preview')).toHaveCount(0);
   expect(await sent(page)).toEqual([]); const target = await point(page, 7);
   await touch(page, [start, { x: start.x + 30, y: start.y }, { x: start.x + 80, y: start.y }, target, ...upward(target).slice(1)], 'touchEnd', 180);
   expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♥' }]); await page.waitForTimeout(1000);
