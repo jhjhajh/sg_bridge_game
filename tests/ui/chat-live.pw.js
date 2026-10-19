@@ -136,7 +136,7 @@ async function touchCard(page, card, tapOnly = false, hold = false) {
 }
 
 for (const mode of ['classic', '25d']) {
-  test(`live full four-player game, stable bidding, legal keyboard/touch play and results ${mode}`, async ({ browser }) => {
+  test(`live full four-player game, stable bidding, legal mouse/touch play and results ${mode}`, async ({ browser }) => {
     test.setTimeout(180000);
     const code = await room();
     const clients = [];
@@ -226,8 +226,25 @@ for (const mode of ['classic', '25d']) {
             expect(await c.page.evaluate(() => playFrames.length)).toBe(sent);
           }
           await touchCard(c.page, card);
-        } else { await card.focus(); await c.page.keyboard.press('Enter'); }
+        } else {
+          // Use actual mouse input throughout the multiplayer desktop game;
+          // keyboard legality and navigation are covered independently.
+          await c.page.locator('#play-hand').scrollIntoViewIfNeeded();
+          const corner = () => card.evaluate(el => {
+            for (const glyph of el.querySelectorAll('.card-corner > span')) {
+              const r = glyph.getBoundingClientRect(); const p = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+              if (document.elementFromPoint(p.x, p.y)?.closest('.hand-card') === el) return p;
+            }
+            throw new Error('No exposed mouse card corner');
+          });
+          const p = await corner(); await c.page.mouse.move(p.x, p.y);
+          await c.page.locator('#play-hand').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(a => a.finished.catch(() => {}))));
+          const click = await corner();
+          await c.page.evaluate(() => { window.remainingCards = [...document.querySelectorAll('#play-hand .hand-card')].filter(card => card.classList.contains('is-selected') === false); });
+          await c.page.mouse.click(click.x, click.y);
+        }
         await expect.poll(() => c.page.evaluate(() => Object.values(gameState.hand).flat().length)).toBe(oldHand - 1);
+        if (!c.mobile) expect(await c.page.evaluate(() => remainingCards.every((card, i) => document.querySelectorAll('#play-hand .hand-card')[i] === card))).toBe(true);
         plays.set(c, plays.get(c) + 1); moveCount++;
         if (move === 2) {
           await c.page.locator(`#top-bar [data-table-view="${mode === 'classic' ? '25d' : 'classic'}"]`).click();

@@ -50,6 +50,15 @@ window.CardHand = (() => {
       this.ignoreTouchClickUntil = 0;
       this.pending = false;
       this.table = container.id === 'play-hand' ? document.getElementById('play-table') : null;
+      if (this.table && !this.table.querySelector('.table-surface')) {
+        // The felt, highlight and native drop hit area share one transformed
+        // surface; a screen-space ellipse cannot follow the tilted tabletop.
+        const surface = document.createElement('div'); surface.className = 'table-surface';
+        const zone = document.createElement('div'); zone.className = 'card-drop-zone';
+        const label = document.createElement('span'); label.className = 'card-drop-label'; label.textContent = 'Drop to play';
+        surface.setAttribute('aria-hidden', 'true'); label.setAttribute('aria-hidden', 'true');
+        surface.append(zone); this.table.prepend(surface); this.table.append(label);
+      }
       this.dragVisual = null;
       this.abort = new AbortController();
       container.classList.add('hand-fan');
@@ -89,7 +98,11 @@ window.CardHand = (() => {
       this.resize = new ResizeObserver(() => this.layout());
       this.resize.observe(container);
       hands.add(this);
+      container.classList.add('hand-initializing');
       this.layout();
+      // Establish the dealt fan before enabling hover/reflow transitions.
+      void container.offsetWidth;
+      container.classList.remove('hand-initializing');
       this.updateHint();
     }
 
@@ -116,6 +129,8 @@ window.CardHand = (() => {
     dispose() {
       this.cancel();
       this.clearDrag();
+      clearTimeout(this.reflowTimer);
+      this.container.classList.remove('hand-reflow');
       this.resize.disconnect();
       this.abort.abort();
       hands.delete(this);
@@ -126,16 +141,18 @@ window.CardHand = (() => {
     layout() {
       if (!this.container.isConnected) return;
       const width = this.container.clientWidth;
-      if (width === this.width) return;
+      const count = this.cards.length;
+      if (width === this.width && count === this.layoutCount) return;
+      if (width !== this.width) this.canvasHeight = 0;
       this.cancel();
       this.width = width;
+      this.layoutCount = count;
       if (!width) return;
       // A nested panel can be narrower than the viewport. Reduce decorative
       // gutters and index insets there before reducing readable type or cards.
       const compact = width < 290;
       const available = Math.max(1, width - (compact ? 4 : 16));
       this.cardWidth = Math.min(76, Math.max(52, available * 0.18));
-      const count = this.cards.length;
       const height = this.cardWidth * 1.4;
       const angle = Math.min(24, Math.max(0, count - 1) * 2) * Math.PI / 180;
       const delta = count > 1 ? 2 * angle / (count - 1) : 0;
@@ -161,7 +178,10 @@ window.CardHand = (() => {
       // Leave room for the border, inset and both digits of "10" as the next
       // card's slanted edge approaches the lower part of the index.
       this.container.style.setProperty('--corner-font', `${Math.min(originalFont, Math.max(11.8, (cornerStep - 5) / 1.3))}px`);
-      this.container.style.height = `${count ? this.fanBottom + 30 : 64}px`;
+      // Removing a card reflows the fan without bobbing the centered table or
+      // the hand's canvas. A resize/new deal establishes a fresh canvas.
+      this.canvasHeight = Math.max(this.canvasHeight || 0, count ? this.fanBottom + 30 : 64);
+      this.container.style.height = `${this.canvasHeight}px`;
       this.container.dataset.fanShape = 'arc';
       this.cards.forEach((card, i) => {
         card.style.left = `${this.positions[i].x - this.cardWidth / 2}px`;
@@ -254,10 +274,15 @@ window.CardHand = (() => {
       if (!gesture.dragging) { gesture.dragging = true; this.startDrag(gesture); }
       const visual = this.dragVisual;
       const now = performance.now();
-      const dt = Math.max(8, now - visual.lastMove);
-      visual.tilt = visual.reduced ? 0 : clamp((x - visual.x) / dt * 7, -12, 12);
-      visual.vx = clamp((x - visual.x) / dt, -2, 2);
-      visual.vy = clamp((y - visual.y) / dt, -2, 2);
+      const dt = clamp(now - visual.lastMove, 8, 50);
+      const vx = clamp((x - visual.x) / dt, -2, 2);
+      const vy = clamp((y - visual.y) / dt, -2, 2);
+      // Acceleration turns the card around the actual grip. A direction
+      // reversal gives a visible counter-swing while translation stays exact.
+      const ax = (vx - visual.vx) / dt;
+      const ay = (vy - visual.vy) / dt;
+      visual.torque = clamp((ax * visual.armY - ay * visual.armX) * 28000, -1800, 1800);
+      visual.vx = vx; visual.vy = vy;
       visual.x = x; visual.y = y; visual.lastMove = now;
       // Position follows the finger directly; only the decorative tilt springs.
       this.paintDrag(visual);
@@ -291,24 +316,25 @@ window.CardHand = (() => {
       proxy.style.fontFamily = style.fontFamily; proxy.style.fontSize = style.fontSize; proxy.style.color = style.color;
       proxy.style.transformOrigin = `${gesture.anchor.x}px ${gesture.anchor.y}px`; proxy.tabIndex = -1;
       root.append(proxy); document.body.append(root); source.classList.add('is-drag-source');
+      const armX = source.offsetWidth / 2 - gesture.anchor.x;
+      const armY = source.offsetHeight / 2 - gesture.anchor.y;
+      const armLength = Math.max(20, Math.hypot(armX, armY));
       const visual = this.dragVisual = { root, proxy, source, anchor: gesture.anchor,
-        x: gesture.x, y: gesture.y, angle: gesture.angle, spin: 0, tilt: 0, vx: 0, vy: 0,
+        x: gesture.x, y: gesture.y, angle: gesture.angle, spin: 0, torque: 0, vx: 0, vy: 0,
+        armX: armX / armLength, armY: armY / armLength,
+        rest: clamp(Math.atan2(armX, Math.max(20, armY)) * 180 / Math.PI, -18, 18),
         lastFrame: performance.now(), lastMove: performance.now(),
         reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
       if (this.table && this.onPlay && !this.pending && !source.classList.contains('disabled')) {
-        if (!this.table.querySelector('.card-drop-zone')) {
-          const zone = document.createElement('div'); zone.className = 'card-drop-zone'; zone.setAttribute('aria-hidden', 'true');
-          const hint = document.createElement('span'); hint.textContent = 'Drop to play'; zone.append(hint); this.table.append(zone);
-        }
         this.table.classList.add('card-drop-available');
       }
       if (!visual.reduced) {
         const frame = now => {
           if (this.dragVisual !== visual || visual.returning) return;
           const dt = Math.max(0, Math.min(0.032, (now - visual.lastFrame) / 1000)); visual.lastFrame = now;
-          const target = visual.tilt * Math.exp(-(now - visual.lastMove) / 90);
-          visual.spin += ((target - visual.angle) * 200 - visual.spin * 24) * dt;
-          visual.angle += visual.spin * dt;
+          const drive = visual.torque * Math.exp(-(now - visual.lastMove) / 65);
+          visual.spin = clamp(visual.spin + ((visual.rest - visual.angle) * 95 - visual.spin * 7.5 + drive) * dt, -240, 240);
+          visual.angle = clamp(visual.angle + visual.spin * dt, -38, 38);
           this.paintDrag(visual); visual.raf = requestAnimationFrame(frame);
         };
         visual.raf = requestAnimationFrame(frame);
@@ -445,8 +471,31 @@ window.CardHand = (() => {
       existing.update(validSuits, onPlay);
       return;
     }
+    if (existing && values.length < existing.cards.length && existing.hint.parentNode === container) {
+      const remaining = existing.cards.filter(card => values.some(value => value.value === card.dataset.value && value.suit === card.dataset.suit));
+      if (remaining.length === values.length && remaining.every((card, i) => card.parentNode === container
+        && card.dataset.value === values[i].value && card.dataset.suit === values[i].suit)) {
+        const focused = existing.cards.indexOf(document.activeElement);
+        const keyboard = container.dataset.input === 'keyboard';
+        const focusedCard = existing.cards[focused];
+        existing.cancel(); existing.clearDrag();
+        existing.cards.filter(card => !remaining.includes(card)).forEach(card => card.remove());
+        existing.cards = remaining;
+        existing.pending = false;
+        container.classList.add('hand-reflow');
+        clearTimeout(existing.reflowTimer);
+        existing.layout(); existing.update(validSuits, onPlay);
+        existing.reflowTimer = setTimeout(() => container.classList.remove('hand-reflow'), 180);
+        const target = remaining.includes(focusedCard) ? focusedCard : remaining[Math.min(Math.max(focused, 0), remaining.length - 1)];
+        remaining.forEach(card => { card.tabIndex = card === target ? 0 : -1; });
+        // A mouse click must not focus/lift a different card after its ack.
+        // Keyboard users keep their place at the nearest surviving card.
+        if (focused >= 0 && keyboard && target) { target.focus({ preventScroll: true }); existing.select(remaining.indexOf(target)); }
+        return;
+      }
+    }
     let focused;
-    if (container.contains(document.activeElement)) focused = document.activeElement.dataset;
+    if (container.dataset.input === 'keyboard' && container.contains(document.activeElement)) focused = document.activeElement.dataset;
     hands.forEach(controller => { if (controller.container === container || !controller.container.isConnected) controller.dispose(); });
     container.replaceChildren();
     const cards = [];
