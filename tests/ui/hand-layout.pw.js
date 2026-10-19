@@ -19,6 +19,8 @@ async function initializePage(page) {
     return route.continue();
   });
   await page.addInitScript(() => { window.alert = message => { window.lastAlert = message; }; });
+  // Optional integration fixture; the standalone hand keeps its normal view.
+  if (process.env.HAND_TABLE_VIEW) await page.addInitScript(mode => localStorage.setItem('bridge.tableView', mode), process.env.HAND_TABLE_VIEW);
   await page.goto('/');
 }
 test.beforeEach(async ({ page }) => initializePage(page));
@@ -85,7 +87,7 @@ async function expectHandFits(hand, count) {
     expect(card.width).toBeGreaterThanOrEqual(52);
     expect(card.font).toBeGreaterThanOrEqual(11.8);
     expect(card.inside).toBe(true);
-    expect(card.glyphsVisible, JSON.stringify({ count, index: layout.cards.indexOf(card), card })).toBe(true);
+    expect(card.glyphsVisible, JSON.stringify({ count, client: layout.client, index: layout.cards.indexOf(card), card })).toBe(true);
   }
 }
 
@@ -169,6 +171,48 @@ test('card typography inherits the original proportional font and suit proportio
   expect(typography.rank).toBeCloseTo(27.2, 1);
   expect(typography.suit / typography.rank).toBeCloseTo(1.1, 2);
   await expect(hand.locator('.card-center')).toHaveCount(0);
+});
+
+test('keyboard focus keeps every neighboring rank and suit exposed', async ({ page }) => {
+  for (const width of [320, 390, 1024]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const hand = await showHand(page);
+    for (const index of [0, 6, 12]) {
+      await hand.locator('.hand-card').nth(index).focus();
+      await expectHandFits(hand, 13);
+    }
+  }
+});
+
+test('nested narrow panels preserve full-hand indices without smaller cards', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  for (const counts of distributions.slice(0, 4)) {
+    const hand = await showHand(page);
+    await hand.evaluate(el => { el.style.width = '270px'; });
+    await expect.poll(() => hand.evaluate(el => el.clientWidth)).toBe(270);
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    await showHand(page, 'play', counts);
+    await expectHandFits(hand, 13);
+  }
+});
+
+test('magnifiers keep screen headings and instructions clear in every phase', async ({ page }) => {
+  for (const screen of ['bidding', 'partner', 'play']) {
+    await page.setViewportSize({ width: 390, height: screen === 'partner' ? 1100 : 1000 });
+    const hand = await showHand(page, screen);
+    await hand.locator('.hand-card').first().focus();
+    const preview = page.locator(`#${screen}-hand-preview`);
+    await expect(preview).toBeVisible();
+    const covered = await preview.evaluate(el => {
+      const p = el.getBoundingClientRect();
+      return [...document.querySelectorAll('.screen.active h1, .screen.active h2, .screen.active h3, .screen.active p')]
+        .filter(text => {
+          const r = text.getBoundingClientRect();
+          return r.width && r.height && p.left < r.right && p.right > r.left && p.top < r.bottom && p.bottom > r.top;
+        }).map(text => text.textContent);
+    });
+    expect(covered).toEqual([]);
+  }
 });
 
 test('capture rendered font audit', async ({ page }) => {

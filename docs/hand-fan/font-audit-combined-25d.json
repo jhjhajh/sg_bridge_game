@@ -1,0 +1,32 @@
+{
+  "value": {
+    "text": "A",
+    "family": "Inter, system-ui, -apple-system, sans-serif",
+    "weight": "700",
+    "size": "27.2px",
+    "color": "rgb(45, 52, 54)",
+    "fonts": [
+      {
+        "familyName": "Segoe UI",
+        "postScriptName": "SegoeUI-Bold",
+        "isCustomFont": false,
+        "glyphCount": 1
+      }
+    ]
+  },
+  "suit": {
+    "text": "♣",
+    "family": "Inter, system-ui, -apple-system, sans-serif",
+    "weight": "700",
+    "size": "29.92px",
+    "color": "rgb(45, 52, 54)",
+    "fonts": [
+      {
+        "familyName": "Segoe UI",
+        "postScriptName": "SegoeUI-Bold",
+        "isCustomFont": false,
+        "glyphCount": 1
+      }
+    ]
+  }
+}

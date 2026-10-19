@@ -75,9 +75,10 @@ network APIs/external widgets were intercepted. Before uses `master` commit
 `5ab300a7358d8a41fe29163a074eb0d2b321e7e6` (PR #67); after uses this change.
 Mobile screenshots use real emulated touch input; desktop uses mouse hover.
 Landscape and desktop after images capture the current viewport after scrolling
-to the hand. The final run passed 55 browser checks/captures, 111 unit tests and
+to the hand. The final standalone run passed 57 browser checks/captures, 111 unit tests and
 type checking. The optional cross-revision font audit passed separately for
-each of the three revisions.
+each of the three revisions. See the [PR #69 compatibility handoff](integration.md)
+for combined-view evidence and reproduction instructions.
 
 | Viewport / screen | Before | After |
 | --- | --- | --- |

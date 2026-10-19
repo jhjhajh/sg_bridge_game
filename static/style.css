@@ -893,9 +893,13 @@ body.has-spectators .screen {
   box-shadow: 0 0 0 2px var(--accent-light), 0 4px 10px rgba(0,0,0,0.3);
 }
 .card-hand .hand-card.disabled { opacity: 0.45; pointer-events: auto; }
-.card-hand .hand-card:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+/* Preserve fan order during focus so neighboring indices stay exposed, even
+   when another optional theme adds a generic raised-card focus treatment. */
+.card-hand.hand-fan .hand-card:focus-visible {
+  outline: 3px solid var(--gold); outline-offset: 2px; z-index: var(--card-order);
+}
 .card-corner {
-  position: absolute; top: 2px; left: 2px;
+  position: absolute; top: var(--corner-inset, 2px); left: var(--corner-inset, 2px);
   display: flex; flex-direction: column; align-items: center;
   font-size: var(--corner-font, 16px);
   line-height: 1.1;

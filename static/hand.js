@@ -97,7 +97,10 @@ window.CardHand = (() => {
       this.cancel();
       this.width = width;
       if (!width) return;
-      const available = Math.max(1, width - 16);
+      // A nested panel can be narrower than the viewport. Reduce decorative
+      // gutters and index insets there before reducing readable type or cards.
+      const compact = width < 290;
+      const available = Math.max(1, width - (compact ? 4 : 16));
       this.cardWidth = Math.min(76, Math.max(52, available * 0.18));
       const count = this.cards.length;
       const height = this.cardWidth * 1.4;
@@ -120,6 +123,7 @@ window.CardHand = (() => {
         + (height / 2 - 2) * Math.sin(delta) : this.cardWidth;
       const originalFont = count ? parseFloat(getComputedStyle(this.cards[0]).fontSize) : 16;
       this.container.style.setProperty('--hand-card-width', `${this.cardWidth}px`);
+      this.container.style.setProperty('--corner-inset', compact ? '1px' : '2px');
       // Leave room for the border, inset and both digits of "10" as the next
       // card's slanted edge approaches the lower part of the index.
       this.container.style.setProperty('--corner-font', `${Math.min(originalFont, Math.max(11.8, (cornerStep - 5) / 1.3))}px`);
@@ -157,6 +161,7 @@ window.CardHand = (() => {
       // Corners remain readable and actionable controls remain visible. In a
       // short viewport the lens may be compact, while keeping the original type.
       const selectors = '.hand-card .card-corner, .hand-help, #top-bar, .screen.active button:not(.hand-card), '
+        + '.screen.active h1, .screen.active h2, .screen.active h3, .screen.active p, '
         + '.screen.active input, .screen.active select, .screen.active a, .screen.active .seat-label, '
         + '.screen.active .game-info-bar, .screen.active .trick-card .card-mini, .screen.active .last-trick-panel, '
         + '.screen.active .bid-info, .screen.active #partner-status, .screen.active .player-status-bar';
