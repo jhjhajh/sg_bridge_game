@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createServer } = require('./serve.cjs');
+const { tablePoint, dragPoints } = require('./touch-drag.cjs');
 
 const origin = 'http://127.0.0.1:4186';
 test.use({ baseURL: origin });
@@ -72,8 +73,8 @@ async function touchPlay(page, card) {
   });
   const session = await page.context().newCDPSession(page);
   await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...point, id: 1 }] });
-  for (const distance of [20, 72]) {
-    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: point.x, y: point.y - distance, id: 1 }] });
+  for (const p of dragPoints(point, await tablePoint(page))) {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...p, id: 1 }] });
   }
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await session.detach();

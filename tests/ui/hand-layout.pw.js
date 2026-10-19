@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createServer } = require('./serve.cjs');
+const { tablePoint, dragPoints } = require('./touch-drag.cjs');
 const suits = ['♣', '♦', '♥', '♠'];
 const ranks = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
 const fullHand = [4, 3, 3, 3];
@@ -136,7 +137,7 @@ async function touch(page, points, end = 'touchEnd', delay = 20) {
   await session.send('Input.dispatchTouchEvent', { type: end, touchPoints: [] });
   await session.detach();
 }
-function upward(p, distance = 72) { return [p, { x: p.x, y: p.y - 20 }, { x: p.x, y: p.y - distance }]; }
+async function tableDrag(page, p) { return [p, ...dragPoints(p, await tablePoint(page))]; }
 
 for (const screen of ['bidding', 'partner', 'play']) for (const width of [320, 390, 768, 1024, 1366, 1920]) {
   test(`${screen}: exposed corners and all cards fit at ${width}px`, async ({ page }) => {
@@ -367,49 +368,49 @@ test.describe('real touch and hybrid pointer flows', () => {
     await page.locator('#play-hand .hand-card').first().dispatchEvent('click', { detail: 0 });
     expect(await sent(page)).toEqual([]);
   });
-  test('switching view cancels an armed swipe without playing or replacing game state', async ({ page }) => {
+  test('switching view cancels an eligible table drag without replacing game state', async ({ page }) => {
     const hand = await showHand(page); const p = await point(page, 0);
     await page.evaluate(() => { window.beforeToggleState = gameState; window.beforeToggleSocket = ws; });
     const session = await page.context().newCDPSession(page);
     await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...p, id: 1 }] });
-    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: p.x, y: p.y - 72, id: 1 }] });
-    await expect(hand).toHaveClass(/swipe-ready/);
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...await tablePoint(page), id: 1 }] });
+    await expect(hand).toHaveClass(/drop-ready/);
     const mode = await page.locator('body').getAttribute('data-table-view') === '25d' ? 'classic' : '25d';
     await page.locator(`#top-bar [data-table-view="${mode}"]`).click();
     await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await session.detach();
-    await expect(hand).not.toHaveClass(/swipe-ready/);
+    await expect(hand).not.toHaveClass(/drop-ready/);
     expect(await sent(page)).toEqual([]);
     expect(await page.evaluate(() => gameState === window.beforeToggleState && ws === window.beforeToggleSocket)).toBe(true);
     await expect(hand.locator('.hand-card')).toHaveCount(13);
   });
-  test('hold, slide to another card, then swipe up plays the newly selected card once', async ({ page }) => {
+  test('dragging across other cards keeps the grabbed card and table drop plays it once', async ({ page }) => {
     await showHand(page); const start = await point(page, 0); const target = await point(page, 7);
-    await touch(page, [start, { x: start.x + 25, y: start.y }, target, ...upward(target).slice(1)]);
-    expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♥' }]);
+    await touch(page, [start, { x: start.x + 25, y: start.y }, target, ...(await tableDrag(page, target)).slice(1)]);
+    expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♣' }]);
     await page.locator('#play-hand .hand-card').nth(7).dispatchEvent('click', { detail: 1, pointerType: 'touch' });
     expect(await sent(page)).toHaveLength(1);
   });
-  for (const distance of [0, 12, 40, 55]) test(`upward movement of ${distance}px does not play`, async ({ page }) => {
+  for (const distance of [0, 12, 40, 55]) test(`movement of ${distance}px outside the table does not play`, async ({ page }) => {
     await showHand(page); const p = await point(page, 0);
     await touch(page, [p, { x: p.x, y: p.y - distance }]); expect(await sent(page)).toEqual([]);
   });
-  test('a 56px upward swipe plays on release', async ({ page }) => {
+  test('releasing over the table plays once', async ({ page }) => {
     await showHand(page); const p = await point(page, 0); p.y = Math.round(p.y);
-    await touch(page, upward(p, 56)); expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♣' }]);
+    await touch(page, await tableDrag(page, p)); expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♣' }]);
   });
-  test('horizontal browse, downward scroll and off-axis drags do not play', async ({ page }) => {
+  test('hand, downward, outside-table and returned drags do not play', async ({ page }) => {
     for (const direction of ['horizontal', 'down', 'diagonal', 'return']) {
       await showHand(page); const p = await point(page, 0);
       const points = direction === 'horizontal' ? [p, await point(page, 10)] : direction === 'down' ? [p, { x: p.x, y: p.y + 70 }]
-        : direction === 'diagonal' ? [...upward(p).slice(0, 2), { x: p.x + 65, y: p.y - 80 }]
-          : [...upward(p), { x: p.x, y: p.y - 10 }];
+        : direction === 'diagonal' ? [p, { x: 3, y: Math.max(60, p.y - 120) }]
+          : [...await tableDrag(page, p), p];
       await touch(page, points); expect(await sent(page)).toEqual([]);
     }
   });
   for (const overrides of [{ currentSuit: '♦' }, { turn: 1 }, { isSpectator: true }, { trickComplete: true }]) {
-    test(`upward swipe respects ${JSON.stringify(overrides)}`, async ({ page }) => {
-      await showHand(page, 'play', fullHand, overrides); await touch(page, upward(await point(page, 0)));
+    test(`table drop respects ${JSON.stringify(overrides)}`, async ({ page }) => {
+      await showHand(page, 'play', fullHand, overrides); await touch(page, await tableDrag(page, await point(page, 0)));
       expect(await sent(page)).toEqual([]);
     });
   }
@@ -419,18 +420,18 @@ test.describe('real touch and hybrid pointer flows', () => {
       await hand.evaluate(element => element.addEventListener('pointerdown', event => { window.testPointerId = event.pointerId; }, { once: true }));
       const session = await page.context().newCDPSession(page);
       await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...p, id: 1 }] });
-      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: p.x, y: p.y - 72, id: 1 }] });
-      await expect(hand).toHaveClass(/swipe-ready/);
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...await tablePoint(page), id: 1 }] });
+      await expect(hand).toHaveClass(/drop-ready/);
       if (cancellation === 'pointercancel') await session.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
       else if (cancellation === 'lostcapture') await hand.evaluate(element => element.releasePointerCapture(window.testPointerId));
       else if (cancellation === 'resize') await page.setViewportSize({ width: 844, height: 390 });
       else if (cancellation === 'scroll') await page.evaluate(() => window.dispatchEvent(new Event('scroll')));
       else if (cancellation === 'blur') await page.evaluate(() => window.dispatchEvent(new Event('blur')));
       else if (cancellation === 'new-state') await page.evaluate(() => handleMessage({ type: 'state', state: { ...gameState, turn: 1 } }));
-      else await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p.x, y: p.y - 72, id: 1 }, { x: p.x + 50, y: p.y, id: 2 }] });
+      else await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...await tablePoint(page), id: 1 }, { x: p.x + 50, y: p.y, id: 2 }] });
       if (cancellation !== 'pointercancel') await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await session.detach();
-      expect(await sent(page)).toEqual([]); await expect(hand).not.toHaveClass(/swipe-ready/);
+      expect(await sent(page)).toEqual([]); await expect(hand).not.toHaveClass(/drop-ready/);
     });
   }
   test('mouse clicks still work immediately after touch on a hybrid device', async ({ page }) => {
@@ -463,8 +464,21 @@ test.describe('real touch and hybrid pointer flows', () => {
         await expectHandFits(hand, 13);
       }
     });
-    test(`last card is selectable by swipe at ${viewport.width}×${viewport.height}`, async ({ page }) => {
-      await page.setViewportSize(viewport); await showHand(page); await touch(page, upward(await point(page, 12)));
+    test(`last card can be dragged onto the visible table at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+      await page.setViewportSize(viewport); await showHand(page);
+      // Stage a real viewport with both the grabbed corner and felt visible.
+      // The wide landscape fan is taller than the available space below the
+      // table; centering the entire hand scrolls the felt behind the top bar.
+      await page.locator('#play-hand').evaluate(el => el.scrollIntoView({ block: 'end' }));
+      if (viewport.height < 500) await page.evaluate(p => {
+        const delta = Math.max(0, innerHeight - 70 - p.y);
+        const before = scrollY; window.scrollBy(0, -delta);
+        document.body.scrollTop -= Math.max(0, delta - (before - scrollY));
+      }, await point(page, 12));
+      expect(await page.locator('#play-hand .hand-card').nth(12).evaluate(el => {
+        const r = el.querySelector('.card-corner').getBoundingClientRect(); return r.top >= 44 && r.bottom <= innerHeight;
+      })).toBe(true);
+      await touch(page, await tableDrag(page, await point(page, 12)));
       expect(await sent(page)).toEqual([{ type: 'playCard', card: 'Q ♠' }]);
     });
   }
@@ -510,7 +524,7 @@ test('record synthetic touch interaction', async ({ browser }) => {
   await expect(page.locator('#play-hand .hand-card.is-selected')).toHaveAttribute('data-value', 'A');
   await expect(page.locator('.hand-preview')).toHaveCount(0);
   expect(await sent(page)).toEqual([]); const target = await point(page, 7);
-  await touch(page, [start, { x: start.x + 30, y: start.y }, { x: start.x + 80, y: start.y }, target, ...upward(target).slice(1)], 'touchEnd', 180);
-  expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♥' }]); await page.waitForTimeout(1000);
-  const video = page.video(); await context.close(); await video.saveAs(path.join(directory, 'touch-select-slide-swipe.webm')); await video.delete();
+  await touch(page, [start, { x: start.x + 30, y: start.y }, { x: start.x + 80, y: start.y }, target, ...(await tableDrag(page, target)).slice(1)], 'touchEnd', 180);
+  expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♣' }]); await page.waitForTimeout(1000);
+  const video = page.video(); await context.close(); await video.saveAs(path.join(directory, 'touch-drag-table-drop.webm')); await video.delete();
 });

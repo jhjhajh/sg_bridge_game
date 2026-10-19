@@ -1044,6 +1044,13 @@ function getSuitClass(suit) {
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
+  // A new socket begins a fresh input session. A card held across reconnect
+  // must return to the hand and wait for authoritative state before playing.
+  awaitingGameState = true;
+  pendingPlay = null;
+  CardHand.cancelAll();
+  if (gameState) renderState();
+
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const tokenParam = authToken ? `&token=${encodeURIComponent(authToken)}` : '';
   const socket = new WebSocket(`${proto}//${location.host}/api/ws?room=${roomCode}&playerId=${playerId}${tokenParam}`);

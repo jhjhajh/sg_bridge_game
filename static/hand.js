@@ -6,8 +6,8 @@ window.CardHand = (() => {
   const hands = new Set();
   const names = { '♣': 'clubs', '♦': 'diamonds', '♥': 'hearts', '♠': 'spades' };
   const ranks = { A: 'Ace', K: 'King', Q: 'Queen', J: 'Jack' };
-  const SWIPE_DISTANCE = 56;
-  const SWIPE_START = 14;
+  const DRAG_START = 6;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   let nextId = 0;
   let touchClickBlockedUntil = 0;
   // Compatibility clicks may arrive after an authoritative state replaced the
@@ -19,6 +19,9 @@ window.CardHand = (() => {
   }
 
   function cancelAll() { hands.forEach(hand => hand.cancel()); }
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && [...hands].some(hand => hand.gesture)) { event.preventDefault(); cancelAll(); }
+  });
   window.addEventListener('blur', cancelAll);
   window.addEventListener('resize', cancelAll);
   window.addEventListener('scroll', cancelAll, true);
@@ -29,8 +32,12 @@ window.CardHand = (() => {
     });
   }, true);
   new MutationObserver(() => {
-    hands.forEach(hand => { if (!hand.container.isConnected) hand.dispose(); });
+    hands.forEach(hand => {
+      if (!hand.container.isConnected) hand.dispose();
+      else if (hand.gesture && !hand.container.getClientRects().length) hand.cancel();
+    });
   }).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(cancelAll).observe(document.body, { attributes: true, attributeFilter: ['data-table-view'] });
 
   class Hand {
     constructor(container, cards, onPlay) {
@@ -42,6 +49,8 @@ window.CardHand = (() => {
       this.mouseClick = -1;
       this.ignoreTouchClickUntil = 0;
       this.pending = false;
+      this.table = container.id === 'play-hand' ? document.getElementById('play-table') : null;
+      this.dragVisual = null;
       this.abort = new AbortController();
       container.classList.add('hand-fan');
       container.dataset.input = matchMedia('(hover: none)').matches ? 'touch' : 'mouse';
@@ -106,6 +115,7 @@ window.CardHand = (() => {
 
     dispose() {
       this.cancel();
+      this.clearDrag();
       this.resize.disconnect();
       this.abort.abort();
       hands.delete(this);
@@ -170,14 +180,15 @@ window.CardHand = (() => {
 
     updateHint(ready = false) {
       const card = this.cards[this.selected];
-      this.container.classList.toggle('swipe-ready', ready);
-      this.hint.textContent = !this.cards.length ? 'Your hand is empty' : this.pending ? 'Playing…'
-        : !this.onPlay ? 'Slide or hover to inspect your cards'
+      this.container.classList.toggle('drop-ready', ready);
+      const text = !this.cards.length ? 'Your hand is empty' : this.pending ? 'Playing…'
+        : !this.onPlay ? 'Drag or hover to inspect your cards'
           : card?.classList.contains('disabled') ? 'This card cannot be played'
-            : ready ? 'Release to play'
-              : this.container.dataset.input === 'touch' ? 'Slide to choose · swipe up to play'
+            : ready ? 'Release on the table to play'
+              : this.container.dataset.input === 'touch' ? 'Drag a card onto the table to play'
                 : this.container.dataset.input === 'keyboard' ? '← → to choose · Enter or Space to play'
                   : 'Hover to inspect · click to play';
+      if (this.hint.textContent !== text) this.hint.textContent = text;
     }
 
     at(x, y, nearby = false) {
@@ -201,10 +212,19 @@ window.CardHand = (() => {
       const index = this.indexOf(event.target);
       if (index < 0) return;
       const touch = event.pointerType !== 'mouse';
+      this.clearDrag();
       this.container.dataset.input = touch ? 'touch' : 'mouse';
       this.mouseClick = -1;
       if (touch) { event.preventDefault(); this.ignoreTouchClickUntil = performance.now() + 1000; }
-      this.gesture = { id: event.pointerId, touch, index, x: event.clientX, y: event.clientY, stage: 'choosing', moved: false };
+      const card = this.cards[index];
+      const box = card.getBoundingClientRect();
+      const matrix = new DOMMatrix(getComputedStyle(card).transform);
+      const angle = Math.atan2(matrix.b, matrix.a);
+      const dx = event.clientX - (box.left + box.width / 2);
+      const dy = event.clientY - (box.top + box.height / 2);
+      this.gesture = { id: event.pointerId, touch, index, x: event.clientX, y: event.clientY, moved: false,
+        anchor: { x: card.offsetWidth / 2 + dx * Math.cos(angle) + dy * Math.sin(angle),
+          y: card.offsetHeight / 2 - dx * Math.sin(angle) + dy * Math.cos(angle) }, angle: angle * 180 / Math.PI };
       this.select(index);
       this.container.setPointerCapture(event.pointerId);
     }
@@ -230,37 +250,113 @@ window.CardHand = (() => {
     track(x, y) {
       const gesture = this.gesture;
       if (!gesture) return;
-      const up = gesture.y - y;
-      const across = x - gesture.x;
-      const bounds = this.container.getBoundingClientRect();
-      if (up < -18 || x < bounds.left - 16 || x > bounds.right + 16
-        || (gesture.stage === 'swiping' && Math.abs(across) > Math.max(36, this.cardWidth * 0.6))) {
-        this.cancel();
-        return;
-      }
-      if (gesture.stage === 'choosing') {
-        if (up >= SWIPE_START && up > Math.abs(across) * 1.2) {
-          gesture.stage = 'swiping'; // Freeze selection once the deliberate upward motion begins.
-        } else {
-          const index = this.at(x, y, true);
-          if (index < 0) { this.cancel(); return; }
-          if (index !== this.selected) {
-            gesture.x = x;
-            gesture.y = y; // A horizontal browse starts a fresh swipe from the newly selected card.
-            this.select(index);
-          } else if (Math.abs(up) < 10) gesture.x = x;
-        }
-      }
-      this.updateHint(this.ready(x, y));
+      if (!gesture.dragging && Math.hypot(x - gesture.x, y - gesture.y) < DRAG_START) return;
+      if (!gesture.dragging) { gesture.dragging = true; this.startDrag(gesture); }
+      const visual = this.dragVisual;
+      const now = performance.now();
+      const dt = Math.max(8, now - visual.lastMove);
+      visual.tilt = visual.reduced ? 0 : clamp((x - visual.x) / dt * 7, -12, 12);
+      visual.vx = clamp((x - visual.x) / dt, -2, 2);
+      visual.vy = clamp((y - visual.y) / dt, -2, 2);
+      visual.x = x; visual.y = y; visual.lastMove = now;
+      // Position follows the finger directly; only the decorative tilt springs.
+      this.paintDrag(visual);
+      const ready = this.ready(x, y);
+      this.table?.classList.toggle('card-drop-ready', ready);
+      this.updateHint(ready);
     }
 
     ready(x, y) {
       const gesture = this.gesture;
-      return !!(gesture?.touch && gesture.stage === 'swiping'
-        && gesture.y - y >= SWIPE_DISTANCE
-        && gesture.y - y >= Math.abs(x - gesture.x) * 1.5
-        && Math.abs(x - gesture.x) <= Math.max(36, this.cardWidth * 0.6)
-        && this.onPlay && !this.cards[this.selected]?.classList.contains('disabled'));
+      const hit = document.elementFromPoint(x, y);
+      return !!(gesture?.touch && gesture.dragging && this.onPlay && !this.pending
+        && !this.cards[gesture.index]?.classList.contains('disabled')
+        && this.table?.getClientRects().length && hit?.closest('#play-table') === this.table
+        && document.elementsFromPoint(x, y).includes(this.table.querySelector('.card-drop-zone'))
+        && !hit.closest('button, a, input, select'));
+    }
+
+    startDrag(gesture) {
+      const source = this.cards[gesture.index];
+      const root = document.createElement('div');
+      root.className = 'card-hand card-drag-layer';
+      root.setAttribute('aria-hidden', 'true'); root.inert = true;
+      for (const name of ['--hand-card-width', '--corner-font', '--corner-inset']) {
+        root.style.setProperty(name, this.container.style.getPropertyValue(name));
+      }
+      const style = getComputedStyle(source);
+      const proxy = source.cloneNode(true);
+      proxy.classList.remove('is-selected'); proxy.classList.add('drag-proxy');
+      proxy.style.cssText = '';
+      proxy.style.fontFamily = style.fontFamily; proxy.style.fontSize = style.fontSize; proxy.style.color = style.color;
+      proxy.style.transformOrigin = `${gesture.anchor.x}px ${gesture.anchor.y}px`; proxy.tabIndex = -1;
+      root.append(proxy); document.body.append(root); source.classList.add('is-drag-source');
+      const visual = this.dragVisual = { root, proxy, source, anchor: gesture.anchor,
+        x: gesture.x, y: gesture.y, angle: gesture.angle, spin: 0, tilt: 0, vx: 0, vy: 0,
+        lastFrame: performance.now(), lastMove: performance.now(),
+        reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
+      if (this.table && this.onPlay && !this.pending && !source.classList.contains('disabled')) {
+        if (!this.table.querySelector('.card-drop-zone')) {
+          const zone = document.createElement('div'); zone.className = 'card-drop-zone'; zone.setAttribute('aria-hidden', 'true');
+          const hint = document.createElement('span'); hint.textContent = 'Drop to play'; zone.append(hint); this.table.append(zone);
+        }
+        this.table.classList.add('card-drop-available');
+      }
+      if (!visual.reduced) {
+        const frame = now => {
+          if (this.dragVisual !== visual || visual.returning) return;
+          const dt = Math.max(0, Math.min(0.032, (now - visual.lastFrame) / 1000)); visual.lastFrame = now;
+          const target = visual.tilt * Math.exp(-(now - visual.lastMove) / 90);
+          visual.spin += ((target - visual.angle) * 200 - visual.spin * 24) * dt;
+          visual.angle += visual.spin * dt;
+          this.paintDrag(visual); visual.raf = requestAnimationFrame(frame);
+        };
+        visual.raf = requestAnimationFrame(frame);
+      }
+    }
+
+    dragTransform(visual, x = visual.x, y = visual.y, angle = visual.angle, scale = 1.035) {
+      return `translate3d(${x - visual.anchor.x}px, ${y - visual.anchor.y}px, 0) rotate(${angle}deg) scale(${visual.reduced ? 1 : scale})`;
+    }
+
+    paintDrag(visual) {
+      visual.proxy.style.transform = this.dragTransform(visual, visual.x, visual.y, visual.reduced ? 0 : visual.angle);
+    }
+
+    finishDrag(played = false) {
+      const visual = this.dragVisual;
+      this.table?.classList.remove('card-drop-available', 'card-drop-ready'); this.container.classList.remove('drop-ready');
+      if (!visual || visual.returning) return;
+      visual.returning = true; cancelAnimationFrame(visual.raf);
+      if (visual.reduced || !visual.source.isConnected || !visual.source.getClientRects().length) { this.clearDrag(); return; }
+      const from = visual.proxy.style.transform;
+      let frames;
+      if (played) {
+        frames = [{ transform: from, opacity: 1 }, {
+          transform: this.dragTransform(visual, visual.x + visual.vx * 4, visual.y + visual.vy * 4, visual.angle / 2, 0.98), opacity: 0,
+        }];
+      } else {
+        const box = visual.source.getBoundingClientRect();
+        const matrix = new DOMMatrix(getComputedStyle(visual.source).transform);
+        const angle = Math.atan2(matrix.b, matrix.a);
+        const dx = visual.anchor.x - visual.source.offsetWidth / 2; const dy = visual.anchor.y - visual.source.offsetHeight / 2;
+        const x = box.left + box.width / 2 + dx * Math.cos(angle) - dy * Math.sin(angle);
+        const y = box.top + box.height / 2 + dx * Math.sin(angle) + dy * Math.cos(angle);
+        frames = [{ transform: from }, { offset: 0.8,
+          transform: this.dragTransform(visual, x + clamp((x - visual.x) * 0.035, -7, 7),
+            y + clamp((y - visual.y) * 0.035, -7, 7), angle * 180 / Math.PI, 1),
+        }, { transform: this.dragTransform(visual, x, y, angle * 180 / Math.PI, 1) }];
+      }
+      visual.animation = visual.proxy.animate(frames, { duration: played ? 140 : 240, easing: 'cubic-bezier(.2,.75,.25,1)', fill: 'forwards' });
+      visual.animation.onfinish = () => { if (this.dragVisual === visual) this.clearDrag(); };
+    }
+
+    clearDrag() {
+      const visual = this.dragVisual;
+      if (!visual) return;
+      this.dragVisual = null; cancelAnimationFrame(visual.raf); visual.animation?.cancel();
+      visual.source.classList.remove('is-drag-source'); visual.root.remove();
+      this.table?.classList.remove('card-drop-available', 'card-drop-ready');
     }
 
     up(event) {
@@ -272,7 +368,8 @@ window.CardHand = (() => {
         this.track(event.clientX, event.clientY);
         const shouldPlay = this.ready(event.clientX, event.clientY);
         this.finishCapture();
-        if (shouldPlay) this.activate(this.selected);
+        if (shouldPlay) this.activate(gesture.index);
+        if (this.dragVisual) { this.select(-1); this.finishDrag(shouldPlay && this.pending); }
       } else {
         const bounds = this.cards[gesture.index].getBoundingClientRect();
         this.mouseClick = !gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) <= 8
@@ -293,6 +390,7 @@ window.CardHand = (() => {
       this.finishCapture();
       this.mouseClick = -1;
       this.select(-1);
+      this.finishDrag();
     }
 
     click(event) {

@@ -915,8 +915,33 @@ body.has-spectators .screen {
   color: var(--text-dim); font-size: 0.72rem; text-align: center;
   pointer-events: none;
 }
-.card-hand.hand-fan.swipe-ready .hand-card.is-selected { box-shadow: 0 0 0 2px var(--success), 0 4px 10px rgba(0,0,0,0.3); }
-.swipe-ready .hand-help { color: var(--success); }
+.card-hand.hand-fan .hand-card.is-drag-source { opacity: 0.18; transition: none; }
+.drop-ready .hand-help { color: var(--success); }
+/* One compositor-moved copy escapes the fan stacking context. The real card
+   retains its place, original text and keyboard semantics in the hand. */
+.card-hand.card-drag-layer {
+  position: fixed; inset: 0; width: 100%; height: 100%; min-height: 0;
+  z-index: 1200; overflow: clip; isolation: isolate;
+}
+.card-drag-layer, .card-drag-layer * { pointer-events: none !important; }
+.card-hand.card-drag-layer .hand-card.drag-proxy {
+  left: 0; top: 0; z-index: 1; transition: none; outline: none;
+  box-shadow: 0 16px 28px #0006, 0 3px 8px #0004;
+  will-change: transform;
+}
+.card-drop-zone {
+  display: none; position: absolute; inset: 16px; z-index: 0;
+  border: 2px dashed #b4e9cf88; border-radius: 14px;
+  background: #2ed5730c; pointer-events: auto;
+}
+.card-drop-zone span {
+  position: absolute; left: 50%; top: 14%; transform: translateX(-50%);
+  padding: 5px 10px; border-radius: 20px; background: #09251feb;
+  color: #d8ffed; font: 600 12px var(--font); white-space: nowrap;
+}
+.card-drop-available .card-drop-zone { display: block; }
+.card-drop-ready .card-drop-zone { border-style: solid; border-color: #7cf3b2; background: #2ed57324; box-shadow: inset 0 0 24px #2ed57325; }
+body[data-table-view="25d"] .card-drop-zone { inset: 13% 8% 16%; border-radius: 42%; }
 @media (prefers-reduced-motion: reduce) {
   .card-hand .hand-card { transition: none; }
 }

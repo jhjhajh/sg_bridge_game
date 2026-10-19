@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { startWorker } = require('./live-worker.cjs');
+const { tablePoint, dragPoints } = require('./touch-drag.cjs');
 test.setTimeout(60000);
 let worker;
 test.beforeAll(async () => { worker = await startWorker(); });
@@ -114,7 +115,7 @@ for (const mode of ['classic', '25d']) {
   });
 }
 
-async function touchCard(page, card, tapOnly = false) {
+async function touchCard(page, card, tapOnly = false, hold = false) {
   await card.scrollIntoViewIfNeeded();
   await card.evaluate(el => Promise.all(el.closest('.card-hand').getAnimations({ subtree: true }).map(a => a.finished.catch(() => {}))));
   const p = await card.evaluate(el => {
@@ -126,9 +127,10 @@ async function touchCard(page, card, tapOnly = false) {
   });
   const session = await page.context().newCDPSession(page);
   await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...p, id: 1 }] });
-  if (!tapOnly) for (const distance of [20, 40, 80]) {
-    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: p.x, y: p.y - distance, id: 1 }] });
+  if (!tapOnly) for (const target of dragPoints(p, await tablePoint(page))) {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...target, id: 1 }] });
   }
+  if (hold) return session;
   await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await session.detach();
 }
@@ -184,8 +186,14 @@ for (const mode of ['classic', '25d']) {
       // The other clients receive real reconnect broadcasts without a redeal.
       const watch = clients[2];
       await watch.page.evaluate(() => { window.playCards = [...document.querySelectorAll('#play-hand .hand-card')]; });
+      const reconnectDrag = await touchCard(clients[3].page, clients[3].page.locator('#play-hand .hand-card').first(), false, true);
+      await expect(clients[3].page.locator('.drag-proxy')).toHaveCount(1);
       await clients[3].page.evaluate(() => { ws.onclose = null; ws.close(); connect(); });
       await expect.poll(() => clients[3].page.evaluate(() => ws.readyState)).toBe(WebSocket.OPEN);
+      await expect(clients[3].page.locator('.card-drag-layer')).toHaveCount(0);
+      await reconnectDrag.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await reconnectDrag.detach();
+      expect(await clients[3].page.evaluate(() => playFrames)).toEqual([]);
+      await expect(clients[3].page.locator('#play-hand .hand-card')).toHaveCount(13);
       expect(await watch.page.evaluate(() => playCards.every((card, i) => card === document.querySelectorAll('#play-hand .hand-card')[i]))).toBe(true);
       // Input outside the current turn cannot emit a play.
       const initialTurn = (await state()).turn;

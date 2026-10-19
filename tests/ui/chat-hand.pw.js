@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createServer } = require('./serve.cjs');
+const { tablePoint } = require('./touch-drag.cjs');
 const origin = 'http://127.0.0.1:4208';
 test.use({ baseURL: origin });
 let server;
@@ -182,19 +183,20 @@ for (const mode of ['classic', '25d']) {
     const startScroll = await page.evaluate(() => scrollY + document.body.scrollTop);
     expect(startScroll).toBeGreaterThan(0);
     const p = await cardPoint(page);
+    const drop = await tablePoint(page);
     await touch(session, 'touchStart', p);
     await touch(session, 'touchEnd');
     expect(await page.evaluate(() => sentMoves)).toEqual([]);
     await touch(session, 'touchStart', p);
     await touch(session, 'touchMove', { x: p.x, y: p.y - 20 });
     await page.evaluate(() => { handleMessage({ type: 'playerReconnected', seat: 2, name: 'Casey' }); handleMessage({ type: 'state', state: structuredClone(gameState) }); });
-    await touch(session, 'touchMove', { x: p.x, y: p.y - 80 });
+    await touch(session, 'touchMove', drop);
     await touch(session, 'touchEnd');
     await expect.poll(() => page.evaluate(() => sentMoves)).toEqual([{ type: 'playCard', card: '10 ♣' }]);
     expect(await page.evaluate(() => scrollY + document.body.scrollTop)).toBe(startScroll);
-    // A second deliberate swipe while waiting must never send another action.
+    // A second deliberate table drop while waiting must never send another action.
     await touch(session, 'touchStart', p);
-    await touch(session, 'touchMove', { x: p.x, y: p.y - 80 }); await touch(session, 'touchEnd');
+    await touch(session, 'touchMove', drop); await touch(session, 'touchEnd');
     expect(await page.evaluate(() => sentMoves.length)).toBe(1);
     await page.evaluate(() => {
       document.body.scrollTop = document.body.scrollHeight - innerHeight - 500;
