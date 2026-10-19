@@ -826,34 +826,15 @@ body.has-spectators .screen {
 
 /* --- Cards --- */
 .card-hand {
-  display: flex; flex-wrap: nowrap; justify-content: safe center;
-  padding: 0.75rem 1rem;
-  gap: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-@supports not (justify-content: safe center) {
-  .card-hand { justify-content: flex-start; }
-  .card-hand::before, .card-hand::after {
-    content: ''; flex: 1;
-  }
-}
-
-.suit-group {
-  display: flex;
-  gap: 0;
   position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+  isolation: isolate;
+  z-index: 2;
+  touch-action: pan-y;
 }
-.suit-group + .suit-group {
-  margin-left: 10px;
-}
-.suit-group + .suit-group::before {
-  content: '';
-  position: absolute;
-  left: -6px; top: 10%;
-  width: 1px; height: 80%;
-  background: rgba(255,255,255,0.1);
-}
+.card-hand[data-interactive="true"] { touch-action: none; }
 
 .card {
   width: clamp(40px, 10vw, 60px);
@@ -886,6 +867,57 @@ body.has-spectators .screen {
 .card.black { color: #2d3436; }
 .card .card-value { font-size: 1em; }
 .card .card-suit { font-size: 1.1em; }
+
+/* Cards follow an arc, progressively rotated like a held hand. */
+.card-hand .hand-card {
+  position: absolute;
+  top: 18px;
+  width: var(--hand-card-width, 60px);
+  height: calc(var(--hand-card-width, 60px) * 1.4);
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  color: #2d3436;
+  font-family: inherit;
+  border-width: 1.5px;
+  border-radius: 8px;
+  z-index: var(--card-order);
+  transform: rotate(var(--card-angle, 0deg)) translateY(0);
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.card-hand .hand-card.red { color: var(--red-suit); }
+.card-hand .hand-card:hover { z-index: var(--card-order); transform: rotate(var(--card-angle, 0deg)) translateY(0); box-shadow: var(--card-shadow); }
+/* Slide along the card's own axis so its side edge keeps the neighboring
+   indices exposed. Preserve the arc position, rotation and stacking order. */
+.card-hand.hand-fan .hand-card.is-selected {
+  transform: rotate(var(--card-angle, 0deg)) translateY(calc(-1 * var(--hand-lift, 8px)));
+  box-shadow: 0 0 0 2px var(--accent-light), 0 4px 10px rgba(0,0,0,0.3);
+}
+.card-hand .hand-card.disabled { opacity: 0.45; pointer-events: auto; }
+/* Preserve fan order during focus so neighboring indices stay exposed, even
+   when another optional theme adds a generic raised-card focus treatment. */
+.card-hand.hand-fan .hand-card:focus-visible {
+  outline: 3px solid var(--gold); outline-offset: 2px; z-index: var(--card-order);
+}
+.card-corner {
+  position: absolute; top: var(--corner-inset, 2px); left: var(--corner-inset, 2px);
+  display: flex; flex-direction: column; align-items: center;
+  font-size: var(--corner-font, 16px);
+  line-height: 1.1;
+  font-weight: 700;
+}
+.hand-help {
+  position: absolute; bottom: 2px; left: 0; right: 0;
+  color: var(--text-dim); font-size: 0.72rem; text-align: center;
+  pointer-events: none;
+}
+.card-hand.hand-fan.swipe-ready .hand-card.is-selected { box-shadow: 0 0 0 2px var(--success), 0 4px 10px rgba(0,0,0,0.3); }
+.swipe-ready .hand-help { color: var(--success); }
+@media (prefers-reduced-motion: reduce) {
+  .card-hand .hand-card { transition: none; }
+}
 
 .card-mini {
   width: clamp(28px, 6vw, 42px);
@@ -1205,17 +1237,16 @@ body.has-spectators .screen {
 }
 
 /* --- Responsive --- */
+@media (max-width: 480px) {
+  .bidding-container, .partner-container { padding: 1rem 0.5rem; }
+  .fullboard-hands { padding: 0; }
+  .fullboard-row { padding: 0.5rem 0; }
+}
+
 @media (min-width: 768px) {
   /* Give a full hand room on desktop, including bidding and partner selection. */
   .bidding-container, .partner-container, .play-container { max-width: 860px; }
 
-  /* Share the available width across suit groups; keep the existing small
-     overlap and readable ranks instead of clipping or scrolling the hand. */
-  .card-hand > .suit-group { min-width: 0; }
-  .card-hand > .suit-group > .card {
-    flex-shrink: 1;
-    min-width: 44px;
-  }
 }
 
 @media (max-width: 400px) {
@@ -1224,7 +1255,6 @@ body.has-spectators .screen {
   .game-info-bar { font-size: 0.8rem; gap: 0.4rem; padding: 0.65rem 0.75rem; }
   .table { max-height: 40vh; }
   .card { margin-left: -8px; }
-  .suit-group + .suit-group { margin-left: 6px; }
 }
 
 /* --- Last Trick mini panel (bottom-right of table) --- */

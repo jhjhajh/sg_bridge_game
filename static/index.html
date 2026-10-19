@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/view.css">
+  <script defer src="/view.js"></script>
 </head>
 <body>
 
@@ -15,6 +17,10 @@
   <div id="top-bar" class="top-bar hidden">
     <span id="top-bar-room" class="top-bar-room"></span>
     <span id="top-bar-name" class="top-bar-name"></span>
+    <div class="view-picker" role="group" aria-label="Table view">
+      <button type="button" data-table-view="classic" aria-pressed="true">Classic</button>
+      <button type="button" data-table-view="25d" aria-pressed="false">2.5D</button>
+    </div>
     <button id="btn-leave-global" class="btn-leave-global">Leave</button>
   </div>
 
@@ -44,6 +50,10 @@
   <!-- Home screen -->
   <div id="screen-home" class="screen active">
     <div class="home-container">
+      <div class="view-picker view-picker-home" role="group" aria-label="Table view">
+        <button type="button" data-table-view="classic" aria-pressed="true">Classic</button>
+        <button type="button" data-table-view="25d" aria-pressed="false">2.5D</button>
+      </div>
       <h1>♠♥ Floating Bridge ♦♣</h1>
       <p class="subtitle">Singaporean Card Game</p>
 
@@ -339,6 +349,7 @@
     </div>
   </div>
 
+  <script src="/hand.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
