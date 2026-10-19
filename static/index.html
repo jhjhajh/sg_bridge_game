@@ -166,9 +166,9 @@
       <button id="lobby-start-btn" class="btn btn-primary hidden" onclick="send({type:'startGame'})">Start Game</button>
       <button id="lobby-join-as-player" class="btn btn-primary hidden" onclick="send({type:'joinAsPlayer'})">Join as Player</button>
       <div class="inline-chat">
-        <div class="inline-chat-log" id="lobby-chat-log"></div>
+        <div class="inline-chat-log" id="lobby-chat-log" role="log" aria-label="Room chat" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
         <div class="chat-input-row">
-          <input type="text" class="chat-input-field" placeholder="Message..." maxlength="200" autocomplete="off">
+          <input type="text" class="chat-input-field" aria-label="Message to room" enterkeyhint="send" placeholder="Message..." maxlength="200" autocomplete="off">
           <button class="chat-send-btn btn btn-secondary btn-small">Send</button>
         </div>
       </div>
@@ -276,9 +276,9 @@
         <div id="play-hand" class="card-hand"></div>
       </div>
       <div class="inline-chat">
-        <div class="inline-chat-log" id="play-chat-log"></div>
+        <div class="inline-chat-log" id="play-chat-log" role="log" aria-label="Room chat" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
         <div class="chat-input-row">
-          <input type="text" class="chat-input-field" placeholder="Message..." maxlength="200" autocomplete="off">
+          <input type="text" class="chat-input-field" aria-label="Message to room" enterkeyhint="send" placeholder="Message..." maxlength="200" autocomplete="off">
           <button class="chat-send-btn btn btn-secondary btn-small">Send</button>
         </div>
       </div>
@@ -303,9 +303,9 @@
         <button id="gameover-join-as-player" class="btn btn-primary hidden" onclick="send({type:'joinAsPlayer'})">Join as Player</button>
       </div>
       <div class="inline-chat">
-        <div class="inline-chat-log" id="gameover-chat-log"></div>
+        <div class="inline-chat-log" id="gameover-chat-log" role="log" aria-label="Room chat" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
         <div class="chat-input-row">
-          <input type="text" class="chat-input-field" placeholder="Message..." maxlength="200" autocomplete="off">
+          <input type="text" class="chat-input-field" aria-label="Message to room" enterkeyhint="send" placeholder="Message..." maxlength="200" autocomplete="off">
           <button class="chat-send-btn btn btn-secondary btn-small">Send</button>
         </div>
       </div>

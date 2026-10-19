@@ -950,6 +950,7 @@ function showGameSection(name) {
 
 // --- Screen management ---
 function showScreen(id) {
+  const changed = !$(id).classList.contains('active');
   if (id !== 'screen-bidding' && id !== 'screen-play') stopDisconnectCountdown();
   screens.forEach((s) => s.classList.remove('active'));
   screens.forEach((s) => s.classList.add('hidden'));
@@ -965,6 +966,11 @@ function showScreen(id) {
     $('top-bar-room').textContent = roomCode || '';
     $('top-bar-name').textContent = playerName || '';
   }
+  if (changed) requestAnimationFrame(() => {
+    for (const log of el.querySelectorAll('.inline-chat-log')) {
+      log.scrollTop = log.dataset.follow !== 'false' ? log.scrollHeight : Number(log.dataset.scrollTop || 0);
+    }
+  });
 }
 
 // --- Card rendering ---
@@ -1040,22 +1046,27 @@ function connect() {
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const tokenParam = authToken ? `&token=${encodeURIComponent(authToken)}` : '';
-  ws = new WebSocket(`${proto}//${location.host}/api/ws?room=${roomCode}&playerId=${playerId}${tokenParam}`);
+  const socket = new WebSocket(`${proto}//${location.host}/api/ws?room=${roomCode}&playerId=${playerId}${tokenParam}`);
+  const socketRoom = roomCode;
+  ws = socket;
 
-  ws.onopen = () => {
+  socket.onopen = () => {
+    if (ws !== socket || roomCode !== socketRoom) return;
     reconnectDelay = 2000;
     $('overlay-reconnect').classList.add('hidden');
     const joinMsg = { type: 'join', name: playerName };
     if (joinAs) joinMsg.joinAs = joinAs;
-    ws.send(JSON.stringify(joinMsg));
+    socket.send(JSON.stringify(joinMsg));
   };
 
-  ws.onmessage = (e) => {
+  socket.onmessage = (e) => {
+    if (ws !== socket || roomCode !== socketRoom) return;
     const msg = JSON.parse(e.data);
     handleMessage(msg);
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (ws !== socket || roomCode !== socketRoom) return;
     awaitingGameState = true;
     pendingPlay = null;
     CardHand.cancelAll();
@@ -1069,7 +1080,7 @@ function connect() {
     }
   };
 
-  ws.onerror = () => {};
+  socket.onerror = () => {};
 }
 
 function send(msg) {
@@ -1265,7 +1276,10 @@ function handleMessage(msg) {
       // State update follows from the server's broadcastFullState — no manual action needed
       break;
     case 'chat':
-      appendChatMessage(msg.name, msg.seat, msg.text);
+      appendChatMessage(msg.name, msg.seat, msg.text, msg);
+      break;
+    case 'chatHistory':
+      restoreChatHistory(msg);
       break;
     case 'playerDisconnected':
       showConnectionToast(`${msg.name} disconnected`);
@@ -1777,7 +1791,10 @@ function renderLobby(s) {
 
 // --- Chat ---
 const CHAT_MAX_MESSAGES = 50;
-const chatMessages = []; // { name, text }
+const chatMessages = [];
+let chatRoom = null;
+let chatEpoch = null;
+let chatSequence = 0;
 const CHAT_BUBBLE_MS = 4000;
 const chatBubbleTimers = {};
 
@@ -1788,10 +1805,78 @@ function makeChatMsgEl(name, text) {
   return div;
 }
 
-function appendToChatLog(logEl, name, text) {
-  logEl.appendChild(makeChatMsgEl(name, text));
-  while (logEl.children.length > CHAT_MAX_MESSAGES) logEl.removeChild(logEl.firstChild);
-  logEl.scrollTop = logEl.scrollHeight;
+function mutateChatLog(log, mutate) {
+  const visible = log.clientHeight > 0;
+  const follow = visible ? log.scrollHeight - log.clientHeight - log.scrollTop < 32 : log.dataset.follow !== 'false';
+  const top = log.getBoundingClientRect().top;
+  const anchor = visible && [...log.children].find(child => child.getBoundingClientRect().bottom > top);
+  const anchorTop = anchor && anchor.getBoundingClientRect().top;
+  mutate();
+  log.dataset.follow = String(follow);
+  if (follow) log.scrollTop = log.scrollHeight;
+  else if (visible && anchor) {
+    const replacement = anchor.isConnected ? anchor : [...log.children].find(child => child.dataset.messageId === anchor.dataset.messageId);
+    if (replacement) log.scrollTop += replacement.getBoundingClientRect().top - anchorTop;
+    else log.scrollTop = 0;
+  }
+  if (visible) log.dataset.scrollTop = log.scrollTop;
+}
+
+function appendToChatLog(logEl, name, text, entry = {}) {
+  mutateChatLog(logEl, () => {
+    const row = makeChatMsgEl(name, text);
+    if (entry.id) row.dataset.messageId = entry.id;
+    logEl.appendChild(row);
+    while (logEl.children.length > CHAT_MAX_MESSAGES) logEl.firstChild.remove();
+  });
+}
+
+function resetRoomChat(code = null, epoch = null) {
+  chatRoom = code;
+  chatEpoch = epoch;
+  chatSequence = 0;
+  chatMessages.length = 0;
+  for (const log of document.querySelectorAll('.inline-chat-log')) {
+    log.replaceChildren(); log.scrollTop = 0;
+    log.dataset.follow = 'true'; log.dataset.scrollTop = '0';
+  }
+  for (const input of document.querySelectorAll('.chat-input-field')) input.value = '';
+  for (const pos of Object.keys(chatBubbleTimers)) clearTimeout(chatBubbleTimers[pos]);
+  for (const bubble of document.querySelectorAll('.chat-bubble')) bubble.classList.remove('visible');
+}
+
+function acceptChatRoom(message) {
+  if (!roomCode || (message.roomCode && message.roomCode !== roomCode)) return false;
+  if (chatRoom !== roomCode || (message.epoch && chatEpoch && message.epoch !== chatEpoch)) resetRoomChat(roomCode, message.epoch);
+  if (message.epoch) chatEpoch = message.epoch;
+  return true;
+}
+
+function replaceChatLogs() {
+  for (const log of document.querySelectorAll('.inline-chat-log')) {
+    // Replaying history should not announce fifty old messages as live chat.
+    log.setAttribute('aria-live', 'off');
+    mutateChatLog(log, () => log.replaceChildren(...chatMessages.map(entry => {
+      const row = makeChatMsgEl(entry.name, entry.text);
+      if (entry.id) row.dataset.messageId = entry.id;
+      return row;
+    })));
+    requestAnimationFrame(() => log.setAttribute('aria-live', 'polite'));
+  }
+}
+
+function restoreChatHistory(message) {
+  if (!acceptChatRoom(message)) return;
+  // A live message may arrive while a join snapshot is being read. Keep only
+  // newer live entries beyond that snapshot's watermark, then sort/deduplicate.
+  const entries = [...message.messages, ...chatMessages.filter(entry => entry.sequence > message.sequence)];
+  const next = [...new Map(entries.map(entry => [entry.id, entry])).values()]
+    .sort((a, b) => a.sequence - b.sequence).slice(-CHAT_MAX_MESSAGES);
+  const unchanged = next.length === chatMessages.length && next.every((entry, i) => entry.id === chatMessages[i].id);
+  chatSequence = Math.max(chatSequence, message.sequence);
+  if (unchanged) return;
+  chatMessages.splice(0, chatMessages.length, ...next);
+  replaceChatLogs();
 }
 
 function showChatBubble(seat, text) {
@@ -1807,14 +1892,20 @@ function showChatBubble(seat, text) {
   chatBubbleTimers[pos] = setTimeout(() => bubble.classList.remove('visible'), CHAT_BUBBLE_MS);
 }
 
-function appendChatMessage(name, seat, text) {
-  chatMessages.push({ name, text });
-  if (chatMessages.length > CHAT_MAX_MESSAGES) chatMessages.shift();
-
-  // Append to all visible inline chat logs
-  for (const log of document.querySelectorAll('.inline-chat-log')) {
-    appendToChatLog(log, name, text);
+function appendChatMessage(name, seat, text, message = {}) {
+  if (!acceptChatRoom(message)) return;
+  if (message.id && (chatMessages.some(entry => entry.id === message.id)
+    || message.sequence <= chatSequence - CHAT_MAX_MESSAGES)) return;
+  const entry = { name, text, seat, id: message.id, sequence: message.sequence };
+  chatMessages.push(entry);
+  if (message.id) {
+    chatSequence = Math.max(chatSequence, message.sequence);
+    chatMessages.sort((a, b) => a.sequence - b.sequence);
   }
+  if (chatMessages.length > CHAT_MAX_MESSAGES) chatMessages.shift();
+  if (chatMessages.at(-1) === entry) {
+    for (const log of document.querySelectorAll('.inline-chat-log')) appendToChatLog(log, name, text, entry);
+  } else replaceChatLogs();
 
   // Show bubble on play screen
   if (seat >= 0 && $('screen-play') && $('screen-play').classList.contains('active')) {
@@ -1825,7 +1916,7 @@ function appendChatMessage(name, seat, text) {
 function sendChatFrom(input) {
   if (!input) return;
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   send({ type: 'chat', text });
   input.value = '';
 }
@@ -1839,10 +1930,19 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.classList.contains('chat-input-field')) {
+    if (e.isComposing || e.keyCode === 229) return;
     e.preventDefault();
-    sendChatFrom(e.target);
+    if (!e.repeat) sendChatFrom(e.target);
   }
 });
+
+for (const log of document.querySelectorAll('.inline-chat-log')) {
+  log.addEventListener('scroll', () => {
+    if (!log.clientHeight) return;
+    log.dataset.follow = String(log.scrollHeight - log.clientHeight - log.scrollTop < 32);
+    log.dataset.scrollTop = log.scrollTop;
+  }, { passive: true });
+}
 
 const SPECTATOR_COLORS = ['#06b6d4','#f97316','#a3e635','#f43f5e','#a855f7','#facc15'];
 
@@ -2202,15 +2302,19 @@ function renderPlay(s) {
   if (isMyTurn && s.hand) {
     validSuits = getValidSuitsClient(s.hand, s.trumpSuit, s.currentSuit, s.trumpBroken);
   }
+  // A completed four-card trick stays on the table until its winner leads.
+  // The server clears those old cards on that next accepted play.
+  const tableReady = !s.trickComplete || s.playedCards.every(Boolean);
   renderHand($('play-hand'), s.hand, isMyTurn ? validSuits : CARD_SUITS,
-    isMyTurn && !pendingPlay && !awaitingGameState && !s.trickComplete ? onPlayCard : null);
+    isMyTurn && !pendingPlay && !awaitingGameState && tableReady ? onPlayCard : null);
 }
 
 function onPlayCard(value, suit) {
   const s = gameState;
-  if (!s || s.phase !== 'play' || s.isSpectator || s.turn !== s.mySeat || s.trickComplete
+  const completedTrick = s?.trickComplete && s.playedCards.every(Boolean);
+  if (!s || s.phase !== 'play' || s.isSpectator || s.turn !== s.mySeat || (s.trickComplete && !completedTrick)
     || pendingPlay || awaitingGameState || ws?.readyState !== WebSocket.OPEN
-    || s.playedCards[s.mySeat] || !s.hand?.[suit]?.includes(value)
+    || (s.playedCards[s.mySeat] && !completedTrick) || !s.hand?.[suit]?.includes(value)
     || !getValidSuitsClient(s.hand, s.trumpSuit, s.currentSuit, s.trumpBroken).includes(suit)) return false;
   pendingPlay = { value, suit, seat: s.mySeat, gameId: s.gameId };
   try {
@@ -2653,6 +2757,7 @@ function esc(str) {
 }
 
 function setRoomCode(code) {
+  if (roomCode !== code) resetRoomChat(code);
   roomCode = code;
   sessionStorage.setItem('roomCode', code);
   history.replaceState(null, '', buildHashWithId(code));
@@ -2663,6 +2768,7 @@ function buildHashWithId(room) {
 }
 
 function leaveGame() {
+  resetRoomChat();
   pendingPlay = null;
   awaitingGameState = true;
   CardHand.cancelAll();
