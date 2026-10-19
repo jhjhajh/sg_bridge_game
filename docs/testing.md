@@ -28,15 +28,15 @@ and repeats the full hand suite with `HAND_TABLE_VIEW=25d`. It covers:
 | TypeScript / Vitest | Rules/bots, auth, statistics, bounded persistent chat and storage ordering/lifecycle |
 | Real local E2E | Worker + SQLite Durable Object + actual WebSockets; create/join four-player rooms, bid/pass, choose a partner, legal keyboard/touch play until the contract resolves, results, refresh/reconnect, live view switch |
 | Real local chat | Two browser clients, desktop and mobile, send via composer, refresh/reconnect replay, order, duplicate joins, empty messages, latest 50, moving the same client to another room, delayed old-socket frames |
-| Browser input / layout | Classic and 2.5D; real CDP touches on a scrollable page, tap does not play, swipe plays once, pending/illegal/out-of-turn guards, pointer cancellation, resize/blur/scroll, stable hand DOM/positions on unrelated updates, keyboard focus, reduced motion, narrow layouts |
+| Browser input / layout | Classic and 2.5D; real CDP dragging on a scrollable page, finger attachment, table drop plays once, hand/outside return, invalid drop zones, pending/illegal/out-of-turn guards, pointer cancellation, resize/blur/scroll, live reconnect while dragging, stable hand DOM/positions on unrelated updates, original card typography, keyboard focus, reduced motion, narrow layouts |
 | Chat fixtures | Snapshot/live race and duplicate replay, reading position while older messages are trimmed, following newest messages, long names/text, IME/repeat/offline draft guards, synthetic before/after captures |
 
 The live test server uses loopback port **4210**, current production source and
 assets, local schema migrations, and temporary room storage. It substitutes
 only unrelated HTTP auth/leaderboard requests in browser tests. Gameplay,
 room joins, card legality and all chat frames use the actual server. No
-Telegram messages are sent. The static interaction suites use **4184**, **4186**
-and **4208**. Keep those ports free and run one suite at a time.
+Telegram messages are sent. The static interaction suites use **4184**, **4186**,
+**4208** and **4212**. Keep those ports free and run one suite at a time.
 
 Focused iteration:
 
