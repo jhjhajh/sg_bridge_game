@@ -1,15 +1,39 @@
 # Responsive hand and input behavior
 
-All hands use a straight fan with exposed rank/suit corners, including bidding,
-partner selection, play, and spectator full-board views. Cards remain 52–76px
-wide. Spacing uses the measured hand width and card count: up to one full card
-plus a 6px gap for short hands, or `(available width - card width) / (count - 1)`
-for crowded hands. Corner text adjusts with that spacing; it stays about 12px or
-larger at the tested minimum 320px viewport. Overflow is not concealed.
+All hands follow a curved arc with exposed rank/suit corners, including bidding,
+partner selection, play, and spectator full-board views. Cards remain 52-76px
+wide. A full hand rotates progressively from -24 to +24 degrees; centers follow
+the same circle, with the middle card higher than the outer cards. Short hands
+use a smaller arc. The radius uses the measured container width, hand size and
+full rotated outer-card bounds. Cards overlap more as space gets tighter.
+Corner text adjusts to the exposed strip, including room for both digits of
+"10"; it remains at least 11.8px in the tested 320px viewport. Overflow is visible.
 
 Touching a card selects it and opens a larger preview. Holding and sliding
-horizontally changes the selected card. The preview sits above or below the fan,
-stays inside the viewport, and does not cover neighboring corner labels.
+horizontally changes the selected card. Native browser hit testing follows the
+rotated card shapes. The preview searches for clear space inside the viewport,
+avoiding all corner labels, controls, seat labels and game information. It can
+use a shorter frame in a short viewport while retaining the original font size.
+If no clear space exists, it dismisses rather than covering an action or index.
+
+## Original typography restored
+
+The pre-PR #67 revision `9927555c39fff241b8a1b2183abf80ccb4890f7b`
+inherited the body's `Inter, system-ui, -apple-system, sans-serif` stack. PR #67
+did not change the font. The initial PR #68 commit explicitly set `var(--mono)`
+on the hand cards and preview, changing the stack to JetBrains Mono / Courier New,
+and reduced rank sizes to 16px. This revision removes that override, restores
+weight 700, the original responsive size (27.2px at desktop), the 1.1x suit size,
+original red/black colors, border and radius, and removes the added gray center pip.
+Only crowded corner indices scale down; the magnifier retains the original size.
+
+The Google Fonts links are unchanged. To distinguish CSS changes from font loading,
+the CDP audit records actual rendered fonts with external requests deliberately
+blocked. The original and restored desktop ranks/suits both render in Segoe UI
+Bold at 27.2/29.92px; the initial PR #68 version renders in Courier New Bold at
+16/17.6px. These are verified Windows fallbacks, not a claim about a live client's
+font availability. See [original](font-audit-baseline.json),
+[initial PR #68](font-audit-straight.json), and [restored](font-audit-restored.json).
 
 ## Activation and cancellation
 
@@ -50,7 +74,10 @@ using deterministic 13-card synthetic hands and synthetic players only. All
 network APIs/external widgets were intercepted. Before uses `master` commit
 `5ab300a7358d8a41fe29163a074eb0d2b321e7e6` (PR #67); after uses this change.
 Mobile screenshots use real emulated touch input; desktop uses mouse hover.
-Landscape images capture the current viewport after scrolling to the hand.
+Landscape and desktop after images capture the current viewport after scrolling
+to the hand. The final run passed 55 browser checks/captures, 111 unit tests and
+type checking. The optional cross-revision font audit passed separately for
+each of the three revisions.
 
 | Viewport / screen | Before | After |
 | --- | --- | --- |
@@ -65,13 +92,15 @@ Landscape images capture the current viewport after scrolling to the hand.
 that sends nothing, followed by a continuous slide to A♥ and an upward swipe
 that sends exactly one play. The preview frame is extracted from the same recording.
 
-Run `npm run test:ui` after `npx playwright install chromium`. An installed Edge
+Run `npm run test:ui` after `npx playwright install chromium`. Tests serve only
+the static frontend at `127.0.0.1:4184`. An installed Edge
 can be used with `PLAYWRIGHT_CHANNEL=msedge`. Tests use one browser worker and
 cover 320, 390, 768, 1024, 1366, and 1920px layouts, full/skewed/single-suit/short/
-empty hands, portrait/landscape resize, exposed glyph hit tests, all desktop
+empty hands, arc centers/rotations, full rotated bounds, original typography,
+portrait/landscape resize, nine-point rotated glyph hit tests, all desktop
 cards, keyboard, coarse and hybrid input, tap-only, threshold boundaries,
 browse-then-swipe, invalid/off-turn/pending actions, cancellations, and magnifier
-bounds. Touch tests dispatch actual browser input through CDP, rather than
+bounds and clear controls. Touch tests dispatch actual browser input through CDP, rather than
 calling gesture handlers directly. Firefox/WebKit and physical devices were not
 tested.
 

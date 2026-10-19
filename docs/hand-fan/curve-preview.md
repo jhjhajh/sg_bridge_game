@@ -1,13 +1,11 @@
 # Early curved fan preview
 
-Actual browser captures of the curved-fan and original-font revision in progress,
-using the same deterministic synthetic hand as the existing evidence. These are
-early visual previews; full curved input and viewport regressions are still being
-updated. The screenshots show restored inherited card typography and an actual
-arc with progressively rotated cards.
+Actual browser captures shared early during the curved-fan and original-font
+revision, using the same deterministic synthetic hand as the final evidence.
+The screenshots show restored inherited card typography and an actual arc with
+progressively rotated cards. See [final evidence and validation](README.md).
 
 - [Mobile, 390px](curve-early-play-390.png)
 - [Desktop, 1024px](curve-early-play-1024.png)
 
-The previous completed test results apply to commit `c0ba4c9`; updated validation
-will accompany the completed revision on this PR branch.
+The final revision passed 55 browser tests/captures, 111 unit tests and type checking.

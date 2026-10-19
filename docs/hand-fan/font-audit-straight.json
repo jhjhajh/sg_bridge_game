@@ -1,0 +1,32 @@
+{
+  "value": {
+    "text": "A",
+    "family": "\"JetBrains Mono\", \"Courier New\", monospace",
+    "weight": "700",
+    "size": "16px",
+    "color": "rgb(45, 52, 54)",
+    "fonts": [
+      {
+        "familyName": "Courier New",
+        "postScriptName": "CourierNewPS-BoldMT",
+        "isCustomFont": false,
+        "glyphCount": 1
+      }
+    ]
+  },
+  "suit": {
+    "text": "♣",
+    "family": "\"JetBrains Mono\", \"Courier New\", monospace",
+    "weight": "700",
+    "size": "17.6px",
+    "color": "rgb(45, 52, 54)",
+    "fonts": [
+      {
+        "familyName": "Courier New",
+        "postScriptName": "CourierNewPS-BoldMT",
+        "isCustomFont": false,
+        "glyphCount": 1
+      }
+    ]
+  }
+}

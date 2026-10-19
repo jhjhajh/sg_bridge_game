@@ -56,8 +56,10 @@ window.CardHand = (() => {
       container.setAttribute('aria-describedby', this.hint.id);
       this.preview = document.createElement('div');
       this.preview.className = 'hand-preview hidden';
+      this.preview.id = `${id}-preview`;
       this.preview.setAttribute('aria-hidden', 'true');
-      container.append(this.preview, this.hint);
+      container.appendChild(this.hint);
+      document.body.appendChild(this.preview);
       for (const [name, handler] of Object.entries({
         pointerdown: event => this.down(event), pointermove: event => this.move(event),
         pointerup: event => this.up(event), pointercancel: () => this.cancel(),
@@ -82,6 +84,7 @@ window.CardHand = (() => {
       this.cancel();
       this.resize.disconnect();
       this.abort.abort();
+      this.preview.remove();
       hands.delete(this);
     }
 
@@ -96,13 +99,36 @@ window.CardHand = (() => {
       if (!width) return;
       const available = Math.max(1, width - 16);
       this.cardWidth = Math.min(76, Math.max(52, available * 0.18));
-      this.step = this.cards.length > 1 ? Math.min(this.cardWidth + 6, (available - this.cardWidth) / (this.cards.length - 1)) : 0;
-      this.start = (width - this.cardWidth - this.step * Math.max(0, this.cards.length - 1)) / 2;
+      const count = this.cards.length;
+      const height = this.cardWidth * 1.4;
+      const angle = Math.min(24, Math.max(0, count - 1) * 2) * Math.PI / 180;
+      const delta = count > 1 ? 2 * angle / (count - 1) : 0;
+      const halfWidth = this.cardWidth * Math.cos(angle) / 2 + height * Math.sin(angle) / 2;
+      // Fit the outer rotated corners, not just the unrotated card widths.
+      const radius = delta ? Math.max(0, Math.min((this.cardWidth + 6) / (2 * Math.sin(delta / 2)),
+        (available / 2 - halfWidth) / Math.sin(angle))) : 0;
+      const raw = this.cards.map((card, i) => {
+        const theta = count > 1 ? -angle + i * delta : 0;
+        const halfHeight = height * Math.cos(theta) / 2 + this.cardWidth * Math.abs(Math.sin(theta)) / 2;
+        return { x: radius * Math.sin(theta), y: radius * (1 - Math.cos(theta)), theta, halfHeight };
+      });
+      const top = count ? Math.min(...raw.map(card => card.y - card.halfHeight)) : 0;
+      const bottom = count ? Math.max(...raw.map(card => card.y + card.halfHeight)) : 0;
+      this.positions = raw.map(card => ({ x: width / 2 + card.x, y: 18 + card.y - top, angle: card.theta * 180 / Math.PI }));
+      this.fanBottom = 18 + bottom - top;
+      const cornerStep = delta ? radius * Math.sin(delta) + (this.cardWidth / 2 - 2) * (1 - Math.cos(delta))
+        + (height / 2 - 2) * Math.sin(delta) : this.cardWidth;
+      const originalFont = count ? parseFloat(getComputedStyle(this.cards[0]).fontSize) : 16;
       this.container.style.setProperty('--hand-card-width', `${this.cardWidth}px`);
-      this.container.style.setProperty('--corner-font', `${Math.min(16, Math.max(10, (this.step > 0 ? this.step - 5 : 20) / 1.2))}px`);
-      this.container.style.height = `${this.cards.length ? this.cardWidth * 1.4 + 48 : 64}px`;
+      // Leave room for the border, inset and both digits of "10" as the next
+      // card's slanted edge approaches the lower part of the index.
+      this.container.style.setProperty('--corner-font', `${Math.min(originalFont, Math.max(11.8, (cornerStep - 5) / 1.3))}px`);
+      this.container.style.height = `${count ? this.fanBottom + 30 : 64}px`;
+      this.container.dataset.fanShape = 'arc';
       this.cards.forEach((card, i) => {
-        card.style.left = `${this.start + this.step * i}px`;
+        card.style.left = `${this.positions[i].x - this.cardWidth / 2}px`;
+        card.style.top = `${this.positions[i].y - height / 2}px`;
+        card.style.setProperty('--card-angle', `${this.positions[i].angle}deg`);
         card.style.setProperty('--card-order', i);
       });
     }
@@ -111,27 +137,59 @@ window.CardHand = (() => {
       if (index === this.selected && index >= 0) { this.updateHint(); return; }
       this.selected = index;
       this.cards.forEach((card, i) => card.classList.toggle('is-selected', i === index));
-      this.preview.classList.toggle('hidden', index < 0);
-      if (index >= 0) {
+      const visible = index >= 0 && !!this.positions?.[index] && this.width > 0;
+      this.preview.classList.toggle('hidden', !visible);
+      if (visible) {
         const card = this.cards[index];
         this.preview.classList.toggle('red', card.classList.contains('red'));
         this.preview.classList.toggle('black', card.classList.contains('black'));
         this.preview.replaceChildren(...[...card.children].map(child => child.cloneNode(true)));
-        const bounds = this.container.getBoundingClientRect();
-        const above = bounds.top + 18;
-        const below = innerHeight - (bounds.top + 18 + this.cardWidth * 1.4);
-        const previewWidth = Math.min(90, Math.max(56, (Math.max(above, below) - 12) / 1.4));
-        this.preview.style.setProperty('--preview-width', `${previewWidth}px`);
-        this.preview.style.top = `${above >= previewWidth * 1.4 + 8 ? 10 - previewWidth * 1.4 : 26 + this.cardWidth * 1.4}px`;
-        const left = Math.max(4, Math.min(this.width - previewWidth - 4, this.start + this.step * index + this.cardWidth / 2 - previewWidth / 2));
-        this.preview.style.left = `${left}px`;
+        this.placePreview(index);
       }
       this.updateHint();
+    }
+
+    placePreview(index) {
+      const bounds = this.container.getBoundingClientRect();
+      const width = Math.min(90, innerWidth - 16);
+      const font = parseFloat(getComputedStyle(this.preview).fontSize);
+      const minimumHeight = Math.ceil(font * 2.1 + 18);
+      // Corners remain readable and actionable controls remain visible. In a
+      // short viewport the lens may be compact, while keeping the original type.
+      const selectors = '.hand-card .card-corner, .hand-help, #top-bar, .screen.active button:not(.hand-card), '
+        + '.screen.active input, .screen.active select, .screen.active a, .screen.active .seat-label, '
+        + '.screen.active .game-info-bar, .screen.active .trick-card .card-mini, .screen.active .last-trick-panel, '
+        + '.screen.active .bid-info, .screen.active #partner-status, .screen.active .player-status-bar';
+      const obstacles = [...document.querySelectorAll(selectors)].map(element => element.getBoundingClientRect())
+        .filter(rect => rect.width && rect.height && rect.bottom > 0 && rect.top < innerHeight);
+      const clampX = x => Math.max(8, Math.min(innerWidth - width - 8, x));
+      const xs = [...new Set([clampX(bounds.left + this.positions[index].x - width / 2),
+        clampX(bounds.left + 8), clampX(bounds.right - width - 8), clampX((innerWidth - width) / 2),
+        8, innerWidth - width - 8])];
+      const heights = [...new Set([width * 1.4, Math.max(minimumHeight, 100), Math.max(minimumHeight, 80), minimumHeight])];
+      for (const height of heights) {
+        const ys = [bounds.top + 10 - height, bounds.top + this.fanBottom + 8];
+        for (let y = 8; y <= innerHeight - height - 8; y += 10) ys.push(y);
+        for (const y of ys) for (const x of xs) {
+          if (y < 8 || y + height > innerHeight - 8) continue;
+          if (obstacles.some(rect => x < rect.right + 3 && x + width > rect.left - 3
+            && y < rect.bottom + 3 && y + height > rect.top - 3)) continue;
+          this.preview.style.setProperty('--preview-width', `${width}px`);
+          this.preview.style.setProperty('--preview-height', `${height}px`);
+          this.preview.style.left = `${x}px`;
+          this.preview.style.top = `${y}px`;
+          return;
+        }
+      }
+      // An unusually small/occluded viewport can be scrolled into a usable view;
+      // never cover an action or another card's index just to display a lens.
+      this.preview.classList.add('hidden');
     }
 
     updateHint(ready = false) {
       const card = this.cards[this.selected];
       this.container.classList.toggle('swipe-ready', ready);
+      this.preview.classList.toggle('swipe-ready', ready);
       this.hint.textContent = !this.cards.length ? 'Your hand is empty' : this.pending ? 'Playing…'
         : !this.onPlay ? 'Slide or hover to inspect your cards'
           : card?.classList.contains('disabled') ? 'This card cannot be played'
@@ -141,10 +199,20 @@ window.CardHand = (() => {
                   : 'Hover to inspect · click to play';
     }
 
-    at(x) {
-      const local = x - this.container.getBoundingClientRect().left;
-      if (local < this.start - 16 || local > this.start + this.step * Math.max(0, this.cards.length - 1) + this.cardWidth + 16) return -1;
-      return this.step ? Math.max(0, Math.min(this.cards.length - 1, Math.floor((local - this.start) / this.step))) : 0;
+    at(x, y, nearby = false) {
+      // Native hit testing follows rotation, overlap, rounded corners and any
+      // outer visual transform. Pointer capture does not change this result.
+      const hit = document.elementFromPoint(x, y)?.closest('.hand-card');
+      const index = this.cards.indexOf(hit);
+      if (index >= 0 || !nearby || hit) return index;
+      let nearest = -1;
+      let distance = 12;
+      for (let i = this.cards.length - 1; i >= 0; i--) {
+        const box = this.cards[i].getBoundingClientRect();
+        const d = Math.hypot(Math.max(box.left - x, 0, x - box.right), Math.max(box.top - y, 0, y - box.bottom));
+        if (d < distance) { nearest = i; distance = d; }
+      }
+      return nearest;
     }
 
     down(event) {
@@ -183,7 +251,9 @@ window.CardHand = (() => {
       if (!gesture) return;
       const up = gesture.y - y;
       const across = x - gesture.x;
-      if (up < -18 || this.at(x) < 0 || (gesture.stage === 'swiping' && Math.abs(across) > Math.max(36, this.cardWidth * 0.6))) {
+      const bounds = this.container.getBoundingClientRect();
+      if (up < -18 || x < bounds.left - 16 || x > bounds.right + 16
+        || (gesture.stage === 'swiping' && Math.abs(across) > Math.max(36, this.cardWidth * 0.6))) {
         this.cancel();
         return;
       }
@@ -191,7 +261,8 @@ window.CardHand = (() => {
         if (up >= SWIPE_START && up > Math.abs(across) * 1.2) {
           gesture.stage = 'swiping'; // Freeze selection once the deliberate upward motion begins.
         } else {
-          const index = this.at(x);
+          const index = this.at(x, y, true);
+          if (index < 0) { this.cancel(); return; }
           if (index !== this.selected) {
             gesture.x = x;
             gesture.y = y; // A horizontal browse starts a fresh swipe from the newly selected card.
@@ -224,7 +295,7 @@ window.CardHand = (() => {
       } else {
         const bounds = this.cards[gesture.index].getBoundingClientRect();
         this.mouseClick = !gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) <= 8
-          && this.at(event.clientX) === gesture.index && event.clientY >= bounds.top && event.clientY <= bounds.bottom
+          && this.at(event.clientX, event.clientY) === gesture.index && event.clientY >= bounds.top && event.clientY <= bounds.bottom
           ? gesture.index : -1;
         this.finishCapture();
       }
@@ -308,10 +379,7 @@ window.CardHand = (() => {
         span.textContent = text;
         corner.appendChild(span);
       }
-      const center = document.createElement('span');
-      center.className = 'card-center';
-      center.textContent = suit;
-      button.append(corner, center);
+      button.appendChild(corner);
       container.appendChild(button);
       cards.push(button);
     }

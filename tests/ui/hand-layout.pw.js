@@ -8,13 +8,13 @@ const fullHand = [4, 3, 3, 3];
 const distributions = [fullHand, [10, 1, 1, 1], [13, 0, 0, 0], [0, 6, 7, 0], [1, 1, 1, 0], [0, 0, 0, 1], [0, 0, 0, 0]];
 let server;
 let gameNumber = 0;
-test.beforeAll(async () => { server = createServer(); await new Promise(resolve => server.listen(4174, '127.0.0.1', resolve)); });
+test.beforeAll(async () => { server = createServer(); await new Promise(resolve => server.listen(4184, '127.0.0.1', resolve)); });
 test.afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
 
 async function initializePage(page) {
   await page.route('**/*', route => {
     const url = new URL(route.request().url());
-    if (url.origin !== 'http://127.0.0.1:4174') return route.abort();
+    if (url.origin !== 'http://127.0.0.1:4184') return route.abort();
     if (url.pathname.startsWith('/api/')) return route.fulfill({ status: 200, json: {} });
     return route.continue();
   });
@@ -57,16 +57,22 @@ async function expectHandFits(hand, count) {
       pageFits: document.documentElement.scrollWidth <= innerWidth,
       cards: cards.map((card, i) => {
         const rect = card.getBoundingClientRect();
-        const next = cards[i + 1]?.getBoundingClientRect();
+        const matrix = new DOMMatrix(getComputedStyle(card).transform);
         return {
-          width: rect.width,
-          inside: rect.left >= bounds.left && rect.right <= bounds.right && rect.left >= 0 && rect.right <= innerWidth,
+          width: card.offsetWidth,
+          inside: rect.left >= bounds.left && rect.right <= bounds.right && rect.left >= 0 && rect.right <= innerWidth
+            && rect.top >= bounds.top && rect.bottom <= bounds.bottom,
           font: parseFloat(getComputedStyle(card.querySelector('.card-corner')).fontSize),
           glyphsVisible: [...card.querySelector('.card-corner').children].every(glyph => {
             const g = glyph.getBoundingClientRect();
-            const hit = document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2);
-            return g.left >= rect.left && g.right <= rect.right && (!next || g.right <= next.left)
-              && hit?.closest('.hand-card') === card;
+            const cx = g.left + g.width / 2, cy = g.top + g.height / 2;
+            const halfWidth = Math.max(0, glyph.offsetWidth / 2 - 1);
+            const halfHeight = Math.max(0, glyph.offsetHeight / 2 - 1);
+            return [-1, 0, 1].every(x => [-1, 0, 1].every(y => {
+              const px = cx + matrix.a * x * halfWidth + matrix.c * y * halfHeight;
+              const py = cy + matrix.b * x * halfWidth + matrix.d * y * halfHeight;
+              return document.elementFromPoint(px, py)?.closest('.hand-card') === card;
+            }));
           }),
         };
       }),
@@ -79,13 +85,18 @@ async function expectHandFits(hand, count) {
     expect(card.width).toBeGreaterThanOrEqual(52);
     expect(card.font).toBeGreaterThanOrEqual(11.8);
     expect(card.inside).toBe(true);
-    expect(card.glyphsVisible).toBe(true);
+    expect(card.glyphsVisible, JSON.stringify({ count, index: layout.cards.indexOf(card), card })).toBe(true);
   }
 }
 
-async function point(page, index) {
-  return page.locator('#play-hand .hand-card').nth(index).evaluate(card => {
-    const r = card.getBoundingClientRect(); return { x: r.left + 8, y: r.top + r.height * 0.65 };
+async function point(page, index, id = 'play-hand') {
+  return page.locator(`#${id} .hand-card`).nth(index).evaluate(card => {
+    for (const glyph of card.querySelectorAll('.card-corner > span')) {
+      const r = glyph.getBoundingClientRect();
+      const p = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      if (document.elementFromPoint(p.x, p.y)?.closest('.hand-card') === card) return p;
+    }
+    throw new Error('Card corner is not exposed');
   });
 }
 async function sent(page) { return page.evaluate(() => window.sentCards); }
@@ -127,6 +138,61 @@ test('overlap increases with hand size and adjusts on resize', async ({ page }) 
   }
 });
 
+test('full hands follow a curved arc with progressive rotations', async ({ page }) => {
+  for (const width of [320, 390, 1024, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const hand = await showHand(page);
+    const geometry = await hand.locator('.hand-card').evaluateAll(cards => cards.map(card => ({
+      angle: parseFloat(card.style.getPropertyValue('--card-angle')),
+      y: parseFloat(card.style.top),
+    })));
+    expect(geometry[0].angle).toBeCloseTo(-24);
+    expect(geometry[12].angle).toBeCloseTo(24);
+    expect(geometry[0].y).toBeGreaterThan(geometry[6].y + 10);
+    expect(geometry[12].y).toBeGreaterThan(geometry[6].y + 10);
+    expect(geometry.every((card, i) => !i || card.angle > geometry[i - 1].angle)).toBe(true);
+  }
+});
+
+test('card typography inherits the original proportional font and suit proportions', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const hand = await showHand(page);
+  const typography = await hand.evaluate(el => {
+    const card = el.querySelector('.hand-card');
+    return { family: getComputedStyle(card).fontFamily, body: getComputedStyle(document.body).fontFamily,
+      weight: getComputedStyle(card).fontWeight,
+      rank: parseFloat(getComputedStyle(card.querySelector('.card-value')).fontSize),
+      suit: parseFloat(getComputedStyle(card.querySelector('.card-suit')).fontSize) };
+  });
+  expect(typography.family).toBe(typography.body);
+  expect(typography.weight).toBe('700');
+  expect(typography.rank).toBeCloseTo(27.2, 1);
+  expect(typography.suit / typography.rank).toBeCloseTo(1.1, 2);
+  await expect(hand.locator('.card-center')).toHaveCount(0);
+});
+
+test('capture rendered font audit', async ({ page }) => {
+  const label = process.env.HAND_FONT_AUDIT;
+  test.skip(!label, 'Opt-in audit against saved revisions.');
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await showHand(page);
+  const session = await page.context().newCDPSession(page);
+  await session.send('DOM.enable'); await session.send('CSS.enable');
+  const { root } = await session.send('DOM.getDocument');
+  const audit = {};
+  for (const name of ['value', 'suit']) {
+    const selector = `#play-hand .card-${name}`;
+    const { nodeId } = await session.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+    const { fonts } = await session.send('CSS.getPlatformFontsForNode', { nodeId });
+    audit[name] = await page.locator(selector).first().evaluate(el => ({ text: el.textContent,
+      family: getComputedStyle(el).fontFamily, weight: getComputedStyle(el).fontWeight,
+      size: getComputedStyle(el).fontSize, color: getComputedStyle(el).color }));
+    audit[name].fonts = fonts;
+  }
+  await session.detach();
+  await fs.writeFile(path.join(__dirname, `../../docs/hand-fan/font-audit-${label}.json`), JSON.stringify(audit, null, 2) + '\n');
+});
+
 test('spectator full-board fans fit and cannot play', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 1000 });
   const allHands = distributions.slice(0, 4).map(counts => Object.fromEntries(suits.map((s, i) => [s, ranks.slice(0, counts[i])])));
@@ -148,8 +214,8 @@ for (const width of [768, 1024]) test(`desktop hover magnifies and each exposed 
     const expected = await card.evaluate(el => `${el.dataset.value} ${el.dataset.suit}`);
     const p = await point(page, i);
     await page.mouse.move(p.x, p.y);
-    await expect(hand.locator('.hand-preview')).toBeVisible();
-    expect((await hand.locator('.hand-preview').boundingBox()).width).toBeGreaterThan((await card.boundingBox()).width);
+    await expect(page.locator('#play-hand-preview')).toBeVisible();
+    expect((await page.locator('#play-hand-preview').boundingBox()).width).toBeGreaterThan(await card.evaluate(el => el.offsetWidth));
     await page.mouse.click(p.x, p.y);
     await page.mouse.click(p.x, p.y);
     expect(await sent(page)).toEqual([{ type: 'playCard', card: expected }]);
@@ -171,7 +237,7 @@ test('keyboard arrows, Home/End, Escape and Enter/Space are accessible', async (
   await hand.locator('.hand-card').first().focus();
   await page.keyboard.press('ArrowRight'); await expect(hand.locator('.hand-card').nth(1)).toBeFocused();
   await page.keyboard.press('End'); await expect(hand.locator('.hand-card').last()).toBeFocused();
-  await page.keyboard.press('Escape'); await expect(hand.locator('.hand-preview')).toBeHidden();
+  await page.keyboard.press('Escape'); await expect(page.locator('#play-hand-preview')).toBeHidden();
   await page.keyboard.press('Home'); await page.keyboard.press('Enter'); await page.keyboard.press('Space');
   expect(await sent(page)).toEqual([{ type: 'playCard', card: 'A ♣' }]);
   await showHand(page); await hand.locator('.hand-card').first().focus(); await page.keyboard.press('Space');
@@ -213,7 +279,7 @@ test.describe('real touch and hybrid pointer flows', () => {
 
   test('tap selects and magnifies; release and compatibility clicks never play', async ({ page }) => {
     const hand = await showHand(page); const p = await point(page, 0);
-    await page.touchscreen.tap(p.x, p.y); await expect(hand.locator('.hand-preview')).toBeVisible();
+    await page.touchscreen.tap(p.x, p.y); await expect(page.locator('#play-hand-preview')).toBeVisible();
     await hand.locator('.hand-card').first().dispatchEvent('click', { detail: 1 });
     await hand.locator('.hand-card').first().dispatchEvent('click', { detail: 0 });
     expect(await sent(page)).toEqual([]);
@@ -288,11 +354,21 @@ test.describe('real touch and hybrid pointer flows', () => {
       for (const index of [0, 6, 12]) {
         const p = await point(page, index);
         await page.touchscreen.tap(p.x, p.y);
-        const preview = await hand.locator('.hand-preview').boundingBox();
+        const preview = await page.locator('#play-hand-preview').boundingBox();
+        expect(preview).not.toBeNull();
         expect(preview.x).toBeGreaterThanOrEqual(0);
         expect(preview.y).toBeGreaterThanOrEqual(0);
         expect(preview.x + preview.width).toBeLessThanOrEqual(viewport.width);
         expect(preview.y + preview.height).toBeLessThanOrEqual(viewport.height);
+        const blocked = await page.locator('#play-hand-preview').evaluate(el => {
+          const p = el.getBoundingClientRect();
+          return [...document.querySelectorAll('#top-bar, .screen.active button:not(.hand-card), .screen.active .seat-label, .screen.active .game-info-bar')]
+            .filter(control => {
+              const r = control.getBoundingClientRect();
+              return r.width && r.height && p.left < r.right && p.right > r.left && p.top < r.bottom && p.bottom > r.top;
+            }).map(control => control.id || control.className);
+        });
+        expect(blocked).toEqual([]);
         await expectHandFits(hand, 13);
       }
     });
@@ -315,12 +391,18 @@ test('capture review screenshots', async ({ page, browser }) => {
     const hand = await showHand(capture, screen);
     if (version === 'after') {
       if (coarse) {
-        const box = await hand.locator('.card').first().boundingBox();
-        await capture.touchscreen.tap(box.x + 8, box.y + 40);
-      } else await hand.locator('.card').first().hover({ position: { x: 8, y: 40 } });
+        const p = await point(capture, 0, `${screen}-hand`);
+        await capture.touchscreen.tap(p.x, p.y);
+      } else {
+        const p = await point(capture, 0, `${screen}-hand`);
+        await capture.mouse.move(p.x, p.y);
+      }
     }
     await capture.waitForTimeout(150);
-    await capture.screenshot({ path: path.join(directory, `${version}-${screen}-${width}.png`), fullPage: height >= 500 });
+    // Full-page resizing can cancel hover; keep the desktop after image at its
+    // actual viewport so the selected-card lens is captured too.
+    await capture.screenshot({ path: path.join(directory, `${version}-${screen}-${width}.png`),
+      fullPage: height >= 500 && !(version === 'after' && !coarse) });
     if (context) await context.close();
   }
 });
