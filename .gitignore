@@ -10,3 +10,5 @@ node_modules/
 .dev.vars
 .superpowers/
 .gitnexus
+playwright-report/
+test-results/

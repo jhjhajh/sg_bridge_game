@@ -1205,6 +1205,19 @@ body.has-spectators .screen {
 }
 
 /* --- Responsive --- */
+@media (min-width: 768px) {
+  /* Give a full hand room on desktop, including bidding and partner selection. */
+  .bidding-container, .partner-container, .play-container { max-width: 860px; }
+
+  /* Share the available width across suit groups; keep the existing small
+     overlap and readable ranks instead of clipping or scrolling the hand. */
+  .card-hand > .suit-group { min-width: 0; }
+  .card-hand > .suit-group > .card {
+    flex-shrink: 1;
+    min-width: 44px;
+  }
+}
+
 @media (max-width: 400px) {
   .bid-grid { gap: 4px; }
   .bid-btn { padding: 0.4rem 0.1rem; font-size: 0.65rem; }
