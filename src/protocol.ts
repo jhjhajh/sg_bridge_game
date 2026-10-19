@@ -23,7 +23,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'state'; state: PlayerGameView }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; code?: 'NAME_REQUIRED' }
   | { type: 'joined'; playerName: string; seat: number; playerCount: number }
   | { type: 'gameStart'; turn: number }
   | { type: 'bidMade'; seat: number; bidNum: number; name: string }

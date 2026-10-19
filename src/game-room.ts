@@ -11,6 +11,7 @@ import { recordGameStats, recordEloUpdate, type EloResult } from './stats-db';
 import { insertGameHands, updateGameFinalHands, insertGameTricks, insertGameMetadata } from './game-logging';
 import { settleBetsAndUpdateElo } from './betting-db';
 import { CHAT_HISTORY_KEY, createChatHistory, readChatHistory, appendRoomMessage } from './chat-history';
+import { normalizePlayerName, repairRoomNames } from './player-name';
 
 interface SessionInfo {
   playerId: string;
@@ -92,6 +93,7 @@ export class GameRoom extends DurableObject {
         const player = state.players.find((p) => p.id === playerId);
         if (player) {
           player.connected = true;
+          delete state.disconnectTimers[player.seat];
           await this.refreshPlayerStats(player, playerId);
           await this.saveState(state);
           this.broadcastExcept(
@@ -205,15 +207,16 @@ export class GameRoom extends DurableObject {
   }
 
   private async handleWebSocketDisconnect(ws: WebSocket): Promise<void> {
-    // Use attachment as fallback — webSocketError fires before webSocketClose on abnormal closes,
-    // deleting the session from the map before webSocketClose can process it
-    const session = this.sessions.get(ws) ?? (ws.deserializeAttachment() as SessionInfo | null);
+    // Hibernated sessions are restored by the constructor. Removed sockets
+    // are stale or already handled; their attachments must not revive them.
+    const session = this.sessions.get(ws);
     this.sessions.delete(ws);
 
     if (!session) return;
 
     const state = await this.getState();
     if (!state) return;
+    if ([...this.sessions.values()].some(active => active.playerId === session.playerId)) return;
 
     const player = state.players.find((p) => p.id === session.playerId);
     if (player && player.connected) {
@@ -409,7 +412,9 @@ export class GameRoom extends DurableObject {
   }
 
   private async getState(): Promise<GameState | null> {
-    return (await this.ctx.storage.get<GameState>('state')) ?? null;
+    const state = (await this.ctx.storage.get<GameState>('state')) ?? null;
+    if (state && repairRoomNames(state)) await this.ctx.storage.put('state', state);
+    return state;
   }
 
   private async saveState(state: GameState): Promise<void> {
@@ -573,6 +578,11 @@ export class GameRoom extends DurableObject {
       ws.send(JSON.stringify({ type: 'error', message: 'You must log in with Telegram to play.' }));
       return;
     }
+    name = normalizePlayerName(name);
+    if (!name) {
+      ws.send(JSON.stringify({ type: 'error', code: 'NAME_REQUIRED', message: 'Please enter a name before joining.' }));
+      return;
+    }
     const existing = state.players.find((p) => p.id === playerId);
     if (existing) {
       existing.name = name;
@@ -594,6 +604,7 @@ export class GameRoom extends DurableObject {
     if (botReplacement && (state.phase === 'bidding' || state.phase === 'partner' || state.phase === 'play')) {
       // Player rejoins and takes over from bot — update bot's originalPlayerId and mark as not-bot
       botReplacement.id = playerId;
+      botReplacement.name = name;
       botReplacement.isBot = false;
       botReplacement.botLevel = undefined;
       botReplacement.originalPlayerId = undefined;
@@ -614,6 +625,7 @@ export class GameRoom extends DurableObject {
     const existingSpectator = state.spectators.find((s) => s.id === playerId);
     if (existingSpectator) {
       existingSpectator.name = name;
+      await this.saveState(state);
       ws.send(JSON.stringify(this.buildStateMessage(state, playerId)));
       return;
     }

@@ -58,6 +58,8 @@
       <p class="subtitle">Singaporean Card Game</p>
 
       <div id="leaderboard-section"></div>
+      <p id="identity-status" class="subtitle" role="status" aria-live="polite"></p>
+      <button id="btn-retry-identity" type="button" class="btn btn-secondary hidden">Retry profile</button>
 
       <!-- Telegram login section (shown when not logged in) -->
       <div id="login-section">
@@ -76,7 +78,7 @@
       <div id="game-section" class="hidden">
         <div class="form-group">
           <label for="input-name">Your Name</label>
-          <input type="text" id="input-name" placeholder="Enter your name" maxlength="20" autocomplete="off">
+          <input type="text" id="input-name" placeholder="Enter your name" maxlength="64" autocomplete="off">
         </div>
 
         <button id="btn-create" class="btn btn-primary">Create Game</button>

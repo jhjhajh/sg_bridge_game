@@ -58,6 +58,10 @@ let statsGroupId = null;
 // Auth state
 let authToken = localStorage.getItem('authToken') || null;
 let authDisplayName = null; // name from /api/me, null for guests
+let authNameRequired = false;
+let identityReady = false;
+let identityNeedsLogin = false;
+let identitySubmission = false;
 
 // Betting state
 let myBet = null;
@@ -799,6 +803,91 @@ function renderPairsTab(rows, minGames, sort) {
 
 // --- Auth ---
 
+function normalizePlayerName(value) {
+  if (typeof value !== 'string') return '';
+  const clean = value.replace(/[\p{Cc}\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/gu, ' ')
+    .replace(/\s+/gu, ' ').trim();
+  return /[\p{L}\p{N}\p{P}\p{S}]/u.test(clean) ? Array.from(clean).slice(0, 64).join('') : '';
+}
+
+function identityStatus(text, retry = false) {
+  const status = $('identity-status');
+  if (status) status.textContent = text;
+  $('btn-retry-identity')?.classList.toggle('hidden', !retry);
+}
+
+function useVerifiedProfile(profile) {
+  authDisplayName = normalizePlayerName(profile.displayName);
+  authNameRequired = profile.nameRequired === true || !authDisplayName;
+  // Only a successful server-auth/profile response may supply this ID. Raw
+  // Telegram SDK fields, launch fragments and display names are not proof.
+  if (Number.isSafeInteger(profile.telegramId) && profile.telegramId > 0) {
+    const verifiedId = `tg_${profile.telegramId}`;
+    if (playerId !== verifiedId && ws) {
+      ws.onclose = null; ws.close(); ws = null;
+      gameState = null; pendingPlay = null; awaitingGameState = true;
+    }
+    playerId = verifiedId;
+    localStorage.setItem('playerId', playerId);
+  }
+  playerName = authNameRequired ? '' : authDisplayName;
+  localStorage.setItem('playerName', playerName);
+  showGameSection(playerName);
+  identityStatus(authNameRequired ? 'Your Telegram login is verified. Enter a display name to join.' : '');
+}
+
+function requestPlayerName() {
+  clearTimeout(reconnectTimer);
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  playerName = '';
+  showScreen('screen-home');
+  $('input-room').value = roomCode || '';
+  $('overlay-reconnect').classList.add('hidden');
+  if (authToken) {
+    authNameRequired = true;
+    showGameSection('');
+    identityStatus('Please enter a display name before joining. Your room and login are preserved.', true);
+    $('input-name').focus();
+  } else {
+    showLoginSection();
+    identityStatus('Sign in with Telegram to recover your name, then join this room.');
+  }
+}
+
+async function preparePlayerName() {
+  if (!identityReady || identitySubmission) return false;
+  const name = normalizePlayerName($('input-name').value);
+  if (!name) { identityStatus('Please enter a name.'); $('input-name').focus(); return false; }
+  if (authToken && (authNameRequired || name !== authDisplayName)) {
+    identitySubmission = true;
+    try {
+      const res = await fetch('/api/me', { method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ displayName: name }) });
+      if (!res.ok) throw new Error('Name not saved');
+    } catch {
+      identityStatus('Could not save your name. Please try again.'); return false;
+    } finally {
+      identitySubmission = false;
+    }
+    authDisplayName = name; authNameRequired = false;
+  }
+  playerName = name;
+  localStorage.setItem('playerName', name);
+  identityStatus('');
+  return true;
+}
+
+function resumeSavedRoom() {
+  if (!roomCode) return;
+  if (identityNeedsLogin) { requestPlayerName(); return; }
+  playerName = normalizePlayerName(playerName);
+  if (!playerName) { requestPlayerName(); return; }
+  history.replaceState(null, '', buildHashWithId(roomCode));
+  if (roomCodeFromHash && !joinAs) showScreen('screen-role-choice');
+  else { showScreen('screen-lobby'); $('lobby-room-code').textContent = roomCode; connect(); }
+}
+
 async function loadTelegramWidget() {
   const container = document.getElementById('telegram-widget-container');
   if (container.hasChildNodes()) return; // already loaded
@@ -826,11 +915,14 @@ window.onTelegramAuth = async function (user) {
       body: JSON.stringify(user),
     });
     if (!res.ok) throw new Error('Auth failed');
-    const { token, displayName } = await res.json();
-    authToken = token;
-    authDisplayName = displayName;
-    localStorage.setItem('authToken', token);
-    showGameSection(displayName);
+    const profile = await res.json();
+    if (typeof profile.token !== 'string' || !profile.token) throw new Error('Auth failed');
+    authToken = profile.token;
+    identityNeedsLogin = false;
+    localStorage.setItem('authToken', authToken);
+    useVerifiedProfile(profile);
+    identityReady = true;
+    resumeSavedRoom();
     loadLeaderboard();
   } catch {
     alert('Telegram login failed. Please try again.');
@@ -839,19 +931,34 @@ window.onTelegramAuth = async function (user) {
 
 async function initAuth() {
   if (authToken) {
+    const checkedToken = authToken;
+    identityStatus('Checking your saved Telegram login...');
     try {
       const res = await fetch('/api/me', {
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${checkedToken}` },
+        signal: AbortSignal.timeout(8000),
       });
+      if (authToken !== checkedToken) return;
       if (res.ok) {
-        const { displayName } = await res.json();
-        authDisplayName = displayName;
-        showGameSection(displayName);
+        const profile = await res.json();
+        if (authToken !== checkedToken) return;
+        useVerifiedProfile(profile);
         return;
       }
-    } catch { /* fall through to guest */ }
-    // Token invalid/expired — clear it
+      if (res.status !== 401 && res.status !== 403 && res.status !== 404) throw new Error('Profile unavailable');
+    } catch {
+      if (authToken !== checkedToken) return;
+      // A transient outage does not revoke a valid credential or change IDs.
+      playerName = normalizePlayerName(playerName);
+      authDisplayName = playerName || null;
+      authNameRequired = !playerName;
+      showGameSection(playerName);
+      identityStatus('Your profile is temporarily unavailable. Your saved login is preserved.', true);
+      return;
+    }
+    // Only a definitive authentication/profile failure clears the credential.
     authToken = null;
+    identityNeedsLogin = true;
     authDisplayName = null;
     localStorage.removeItem('authToken');
   }
@@ -864,6 +971,7 @@ function showLoginSection() {
   document.getElementById('game-section').classList.add('hidden');
   loadTelegramWidget();
   maybeShowDevLogin();
+  identityStatus('Sign in with Telegram. Opening a chat link alone does not verify your identity.');
 }
 
 function maybeShowDevLogin() {
@@ -888,11 +996,13 @@ async function devLogin() {
       body: JSON.stringify({ displayName: name }),
     });
     if (!res.ok) throw new Error('Dev login unavailable');
-    const { token, displayName } = await res.json();
-    authToken = token;
-    authDisplayName = displayName;
-    localStorage.setItem('authToken', token);
-    showGameSection(displayName);
+    const profile = await res.json();
+    authToken = profile.token;
+    identityNeedsLogin = false;
+    localStorage.setItem('authToken', authToken);
+    useVerifiedProfile(profile);
+    identityReady = true;
+    resumeSavedRoom();
     loadLeaderboard();
   } catch (e) {
     alert('Dev login failed — is the server running with ALLOW_DEV_LOGIN=1?');
@@ -904,7 +1014,7 @@ function showGameSection(name) {
   document.getElementById('game-section').classList.remove('hidden');
   const nameInput = document.getElementById('input-name');
   const nameLabel = document.querySelector('label[for="input-name"]');
-  if (authDisplayName) {
+  if (authDisplayName && !authNameRequired) {
     // Telegram user — name is authoritative from Telegram, not editable
     nameInput.value = authDisplayName;
     nameInput.readOnly = true;
@@ -913,7 +1023,7 @@ function showGameSection(name) {
   } else {
     nameInput.readOnly = false;
     nameInput.classList.remove('input-readonly');
-    if (name) nameInput.value = name;
+    nameInput.value = authNameRequired ? '' : normalizePlayerName(name || playerName);
     if (nameLabel) nameLabel.textContent = 'Your Name';
   }
   // "Match History" only for logged-in users (the history endpoint requires a JWT)
@@ -927,6 +1037,8 @@ function showGameSection(name) {
       e.preventDefault();
       authToken = null;
       authDisplayName = null;
+      identityNeedsLogin = true;
+      authNameRequired = false;
       localStorage.removeItem('authToken');
       showLoginSection();
       loadLeaderboard();
@@ -1042,7 +1154,12 @@ function getSuitClass(suit) {
 
 // --- WebSocket ---
 function connect() {
+  if (!identityReady) return;
+  if (identityNeedsLogin) { requestPlayerName(); return; }
+  playerName = normalizePlayerName(playerName);
+  if (!playerName) { requestPlayerName(); return; }
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  const joinName = playerName;
 
   // A new socket begins a fresh input session. A card held across reconnect
   // must return to the hand and wait for authoritative state before playing.
@@ -1061,7 +1178,7 @@ function connect() {
     if (ws !== socket || roomCode !== socketRoom) return;
     reconnectDelay = 2000;
     $('overlay-reconnect').classList.add('hidden');
-    const joinMsg = { type: 'join', name: playerName };
+    const joinMsg = { type: 'join', name: joinName };
     if (joinAs) joinMsg.joinAs = joinAs;
     socket.send(JSON.stringify(joinMsg));
   };
@@ -1235,6 +1352,7 @@ function handleMessage(msg) {
       renderState();
       break;
     case 'error':
+      if (msg.code === 'NAME_REQUIRED') { requestPlayerName(); break; }
       pendingPlay = null;
       CardHand.cancelAll();
       renderState();
@@ -2032,8 +2150,7 @@ function renderBidding(s) {
 
   const histEl = $('bid-history');
   if (histEl && s.bidHistory && s.bidHistory.length > 0) {
-    const firstBidderName = s.bidHistory[0].name;
-    const startIdx = s.players.findIndex(p => p.name === firstBidderName);
+    const startIdx = Math.max(0, s.players.findIndex(p => p.seat === s.bidHistory[0].seat));
     const cols = [];
     for (let i = 0; i < 4; i++) {
       cols.push(s.players[(startIdx + i) % s.players.length]);
@@ -2121,8 +2238,7 @@ function renderPartner(s) {
 
   const partnerHistEl = $('partner-bid-history');
   if (partnerHistEl && s.bidHistory && s.bidHistory.length > 0) {
-    const firstBidderName = s.bidHistory[0].name;
-    const startIdx = s.players.findIndex(p => p.name === firstBidderName);
+    const startIdx = Math.max(0, s.players.findIndex(p => p.seat === s.bidHistory[0].seat));
     const cols = [];
     for (let i = 0; i < 4; i++) {
       cols.push(s.players[(startIdx + i) % s.players.length]);
@@ -2817,21 +2933,15 @@ $('input-name').value = playerName;
 document.getElementById('login-section').classList.remove('hidden');
 document.getElementById('game-section').classList.add('hidden');
 
-initAuth();
+initAuth().finally(() => { identityReady = true; resumeSavedRoom(); });
 loadLeaderboard();
+$('btn-retry-identity')?.addEventListener('click', async () => {
+  identityReady = false;
+  try { await initAuth(); } finally { identityReady = true; resumeSavedRoom(); }
+});
 
 $('btn-create').addEventListener('click', async () => {
-  playerName = $('input-name').value.trim();
-  if (!playerName) { alert('Please enter your name'); return; }
-  localStorage.setItem('playerName', playerName);
-  if (authToken && authDisplayName && playerName !== authDisplayName) {
-    fetch('/api/me', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ displayName: playerName }),
-    }).catch(() => {});
-    authDisplayName = playerName;
-  }
+  if (!await preparePlayerName()) return;
 
   $('btn-create').disabled = true;
   try {
@@ -2849,17 +2959,7 @@ $('btn-create').addEventListener('click', async () => {
 });
 
 $('btn-create-group').addEventListener('click', async () => {
-  playerName = $('input-name').value.trim();
-  if (!playerName) { alert('Please enter your name'); return; }
-  localStorage.setItem('playerName', playerName);
-  if (authToken && authDisplayName && playerName !== authDisplayName) {
-    fetch('/api/me', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ displayName: playerName }),
-    }).catch(() => {});
-    authDisplayName = playerName;
-  }
+  if (!await preparePlayerName()) return;
 
   const btn = $('btn-create-group');
   const groupId = btn.dataset.groupId;
@@ -2886,18 +2986,8 @@ $('btn-create-group').addEventListener('click', async () => {
 $('replay-prev')?.addEventListener('click', () => replayStep(-1));
 $('replay-next')?.addEventListener('click', () => replayStep(1));
 
-$('btn-join').addEventListener('click', () => {
-  playerName = $('input-name').value.trim();
-  if (!playerName) { alert('Please enter your name'); return; }
-  localStorage.setItem('playerName', playerName);
-  if (authToken && authDisplayName && playerName !== authDisplayName) {
-    fetch('/api/me', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ displayName: playerName }),
-    }).catch(() => {});
-    authDisplayName = playerName;
-  }
+$('btn-join').addEventListener('click', async () => {
+  if (!await preparePlayerName()) return;
 
   const code = $('input-room').value.trim().toUpperCase();
   if (!code || code.length < 3) { alert('Please enter a valid room code'); return; }
@@ -3019,17 +3109,6 @@ if (!joinAs && sessionStorage.getItem('joinRole')) {
   joinAs = sessionStorage.getItem('joinRole');
 }
 
-// Auto-reconnect or pre-fill from URL hash
-if (roomCode && playerName && roomCodeFromHash && !joinAs) {
-  // If arriving via invite link and haven't chosen a role yet, show role choice screen
-  history.replaceState(null, '', buildHashWithId(roomCode));
-  showScreen('screen-role-choice');
-} else if (roomCode && playerName) {
-  // If reconnecting (roomCode in sessionStorage + playerName), auto-connect
-  history.replaceState(null, '', buildHashWithId(roomCode));
-  showScreen('screen-lobby');
-  $('lobby-room-code').textContent = roomCode;
-  connect();
-} else if (roomCode) {
-  $('input-room').value = roomCode;
-}
+// Profile loading finishes before any automatic room connection. The async
+// continuation above runs after role restoration and event wiring complete.
+if (roomCode) $('input-room').value = roomCode;
