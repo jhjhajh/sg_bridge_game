@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-**Fun Central** — a hub of multiplayer mini apps (card games) running on Cloudflare Workers with Durable Objects for state management and WebSocket for real-time communication. The original and largest app is Singaporean Floating Bridge; Regicide (co-op, 1–4 players) is the second.
+**Fun Central** — a multiplayer card-game hub on Cloudflare Workers, with Durable Objects for authoritative rooms/WebSockets, D1 for profiles/history/statistics, and a vanilla JavaScript frontend. Floating Bridge is the original four-player game; Regicide is cooperative for 1–4 players.
+
+Repository: `https://github.com/vocsong/funCentral`, default branch `master`.
+Start with [README.md](README.md) and the [documentation index](docs/README.md).
+Current guides: [architecture / adding a game](docs/architecture.md),
+[local development](docs/development.md), [testing](docs/testing.md),
+[deployment / migrations](docs/deployment.md).
 
 ## Fun Central (multi-app layout)
 
@@ -14,16 +20,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `/bridge/` | `static/bridge/index.html` + root `static/app.js`, `hand.js`, `style.css`, `view.*` | `GameRoom` DO (`GAME_ROOM`), `/api/create`, `/api/ws`, … |
 | `/regicide/` | `static/regicide/{index.html,regicide.js,regicide.css}` | `RegicideRoom` DO (`REGICIDE_ROOM`), `/api/regicide/create`, `/api/regicide/ws`, `/api/regicide/leaderboard` |
 
-- **Bridge's `static/style.css` is the shared design system.** The hub and every app load `/style.css` and reuse its components (`.home-container`, `.lobby-container`, `.table` felt, `.seat-label`, `.game-info-bar`, `.card-hand.hand-fan`, `.card-mini`, `.btn*`); each app only adds its own small stylesheet on top.
-- `static/fc-auth.js` — shared Telegram sign-in (same `localStorage.authToken` as Bridge, so one login works everywhere; dev login on localhost).
+- **Root `static/style.css` is the shared design system.** The hub and every app load `/style.css` and reuse its components (`.home-container`, `.lobby-container`, `.table` felt, `.seat-label`, `.game-info-bar`, `.card-hand.hand-fan`, `.card-mini`, `.btn*`); each app only adds its own small stylesheet on top.
+- Shared auth endpoints/profile and `localStorage.authToken` give both games one sign-in. Bridge retains its login flow in `static/app.js`; other clients use `static/fc-auth.js`. Dev login is local-only.
 - `static/leaderboard.js` — the shared 🏆 Leaderboard card with a **Bridge | Regicide** switch, shown on the hub, Bridge home and Regicide home. The two boards stay separate.
 - Old Bridge invite links (`/#ROOM`) are redirected by the hub to `/bridge/#ROOM`. Bridge invite messages now use `/bridge/#ROOM`.
 - `localStorage.playerName` is shared across apps so a player's name carries over.
-- **Adding an app:** put its page under `static/<app>/`, give it its own Durable Object class (new `[[migrations]]` tag in `wrangler.toml`, binding in `Env`, export from `src/index.ts`, and add it to `tests/ui/live-worker.cjs`), namespace its routes under `/api/<app>/`, and add a tile to `static/index.html`.
+- Bridge's existing backend paths and `/api/create` / `/api/ws` compatibility routes intentionally remain in place. No broad layout move is required.
+- `src/games.ts` exports the typed `GAME_CATALOG` for Telegram choices (`id`, `name`, `path`, `telegramCommand`, `players`, `emoji`). Hub tiles remain static HTML; there is no automated website catalog endpoint.
+- **Adding an app:** use `src/<game>/`, `static/<game>/` and `/api/<game>/*`; add its own room class/binding with a new incremental DO migration and game-prefixed D1 tables. Update `Env`, Worker exports, the catalog, hub tiles and local test harnesses. Follow the [extension checklist](docs/architecture.md#adding-another-game).
 
 ### Regicide (`src/regicide/`)
 - **`engine.ts`** — pure rules engine (no Cloudflare deps), unit-tested in `tests/regicide-engine.test.ts`. Card codes are rank+suit letter (`7H`, `10S`, `KC`), Jesters `X1`/`X2`; pile index 0 = top. Actions (`playCards`, `yieldTurn`, `discardCards`, `chooseNextPlayer`, `flipSoloJester`) mutate the game and return an error string or `null`.
-- **`room.ts`** — `RegicideRoom` DO: lobby (≤4 seats, first joiner hosts), start, relays actions to the engine, and broadcasts a per-player view (own hand only). Shuffles use a seeded PRNG kept in room state. Purges storage 30 min after the last socket disconnects.
+- **`room.ts`** — `RegicideRoom` DO: lobby (≤4 seats, first seated player hosts), start, engine actions and per-player views (spectators get no private hand). Shuffles use a seeded PRNG in room state. Authoritative transitions are saved before external I/O; delayed membership/rating callbacks merge into the latest state. A durable completion outbox retries D1 failures and survives restarts. Empty rooms purge after 30 minutes only when no results remain pending.
 - **Identity:** `/api/regicide/ws` turns a valid JWT into `playerId=tg_<id>` (+ the profile name); anything else becomes `guest_…`, which can watch but not take a seat.
 - **Rating (`rating.ts`, `db.ts`, migration `0011_regicide.sql` — all four Regicide tables, `CREATE … IF NOT EXISTS` only):** separate from Bridge ELO. Score = royals defeated ÷ 12 (win = 1) vs an Elo expectation against a fixed castle rating of 1200; K = 32 for a player's first 30 games, then 16 (as in `elo.ts`). Rated once per game when won/lost, or when ended early after at least one royal fell. Tables: `regicide_ratings`, `regicide_games`, `regicide_rating_history`, `regicide_group_stats`. Until they exist in an environment, Regicide still plays; only ratings/boards/stats are empty, and Bridge (incl. the bot's `/leaderboard`) is unaffected. `GET /api/regicide/leaderboard` returns Bridge's `{ top, me }` shape; `GET /api/regicide/stats` returns every rated player for the Bridge-style stats screen (`/regicide/?view=stats`: rating, games, wins, win%, best and average royals; min-games filter 3/10/20, no pairs).
 - **Dev/test only (gated on `ALLOW_DEV_LOGIN=1`):** `POST /api/regicide/create { seed }` pins the shuffle; `POST /api/regicide/debug/patch?room=` merges fields into the live game to set up exact scenarios (used by `tests/ui/regicide-live.pw.js`).
@@ -31,27 +39,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-```bash
-npm install       # Install dependencies
-npm run dev       # Start local dev server (simulates Durable Objects)
-npm run deploy    # Deploy to Cloudflare Workers (requires wrangler login)
-npm run typecheck # TypeScript type check without compiling
-npm run test      # Run vitest
+```sh
+npm ci --include=dev           # Locked tooling, even if devDependencies were omitted
+npm run dev                   # Local Worker, room Durable Objects and assets
+npm run typecheck             # TypeScript check without emitting files
+npm test -- --maxWorkers=2     # Bounded unit/runtime regressions
+npm run test:e2e               # Selected live-worker and browser input checks
+npm run test:ui                # Complete Chromium Playwright suite
+npm run test:pr                # Required repeatable PR validation
 ```
+
+The PR runner performs typecheck, Vitest with two workers, the full Chromium
+suite with Classic hand settings, then the complete hand-layout suite in 2.5D.
+Use an already available browser; commands do not install browsers, access
+production D1 or deploy. Report actual results and device/emulation limits.
 
 ## Deployment
 
-**Do not run `npm run deploy` manually.** Merging a PR to `master` triggers automatic Cloudflare deployment. Feature work should be done on a branch and merged via PR.
+**Never run `npm run deploy` manually.** A PR merge to `master` triggers
+Cloudflare Workers Builds. Keep Worker `sgbridgegame`, D1 `sg-bridge-users`,
+existing bindings/secrets and public URL `https://sgbridgegame.vocs.workers.dev`.
+Required existing secrets are `JWT_SECRET` and `TELEGRAM_BOT_TOKEN`; the public
+username is `funCentral_bot`. Production `ALLOW_DEV_LOGIN` must be absent.
+
+DO migrations retain `GAME_ROOM`/`GameRoom` at `v1` and add
+`REGICIDE_ROOM`/`RegicideRoom` at `v2` automatically during deployment.
+D1 SQL is a separate controlled step: inspect the remote schema/ledger and
+pending list first; never replay destructive `0006_stats_reset.sql`.
+See [deployment](docs/deployment.md) for the workflow and rollout checkpoint.
 
 ## Architecture
 
 ### Bridge Backend (Cloudflare Workers + Durable Objects)
 
-- **`src/index.ts`** — Worker entry point. Routes `POST /api/create` (generates room code, provisions DO), `/api/ws` (upgrades to WebSocket), `/api/games/mine` + `/api/games/:gameId` (history + replay), and dev-only `/api/auth/dev`.
-- **`src/game-room.ts`** — The Durable Object. One instance per room. Holds the full `GameState` in DO storage, manages the WebSocket connections for all 4 players, and runs the entire game state machine (lobby → bidding → partner selection → play → game over).
+- **`src/index.ts`** — Shared Worker entry point. Routes Bridge's `POST /api/create`, `/api/ws`, `/api/games/mine` + `/api/games/:gameId`, namespaced Regicide APIs, shared auth/profile and Telegram updates.
+- **`src/game-room.ts`** — Bridge's `GameRoom`, one instance per room. Holds `GameState` in DO storage, manages player/spectator WebSockets and runs lobby → bidding → partner selection → play → game over.
 - **`src/bridge.ts`** — Pure game logic: deck shuffling, hand generation (with wash/redeal rule for weak hands), point calculation, valid card determination, trick winner comparison.
 - **`src/types.ts`** — `GameState`, `PlayerGameView`, `Player`, `Hand`, `TrickRecord` interfaces; constants (`NUM_PLAYERS=4`, `MAX_BID=34`).
-- **`src/protocol.ts`** — Union types for all WebSocket messages (client→server and server→client).
+- **`src/protocol.ts`** — Bridge client/server WebSocket message unions (Regicide owns its separate protocol in `src/regicide/room.ts`).
 - **`src/history.ts`** — Per-user game list + full replay payload (D1 queries, server-side trick-winner computation, rating injection).
 - **`src/move-rating.ts`** — Heuristic move rating engine (`rateGame`, `summarize`); labels each played card as best/good/inaccuracy/mistake/blunder.
 - **`src/game-logging.ts`** — Writes `game_hands` (with per-seat `telegram_id`), `game_tricks`, and `game_metadata` (with `is_practice`). Runs for **all** games, including practice.
@@ -59,86 +84,65 @@ npm run test      # Run vitest
 ### Bridge Frontend (Vanilla JS SPA)
 
 - **`static/app.js`** — Connects via WebSocket, sends/receives messages, handles all screen transitions, auto-reconnects with exponential backoff.
-- **`static/bridge/index.html`** — 6 screen states: home, lobby, bidding, partner selection, play, game-over. (Served at `/bridge/`; it references the root-level `/app.js`, `/style.css`, etc.)
+- **`static/bridge/index.html`** — Bridge screens for home, role choice, lobby, bidding, partner selection, play/results, spectators, history/replay and stats. Served at `/bridge/`, referencing root-level `/app.js`, `/style.css`, etc.
 - **`static/style.css`** — CSS-only card rendering (no images), dark glassmorphism theme.
 
 ### Key Design Decisions
 
-**Server-authoritative state:** All game state lives on the Durable Object. Each player's `PlayerGameView` contains only their own hand; others' hands are null. The partner identity is whispered privately.
+**Server-authoritative state:** Rooms validate all actions and build recipient-specific views. A seated Bridge player sees their own hand; spectators can explicitly watch a seat or the full board. Partner identity is private until the called card is played, then public (also revealed at game over).
 
-**One DO per room:** `env.GAME_ROOM.getByName(roomCode)` — the room code is the DO name/key.
+**One DO per room, per game:** Bridge uses `GAME_ROOM.getByName(roomCode)`; Regicide uses its own `REGICIDE_ROOM` namespace.
 
-**WebSocket flow:** Client connects with `?room=CODE&playerId=ID` → Worker delegates `fetch()` to DO → DO accepts WebSocket via `server.accept()`. Same `playerId` on reconnect restores the session.
+**WebSocket flow:** Clients send room/session information and a saved token when available. The Worker verifies identity, forwards to the game's DO, and the room accepts with `ctx.acceptWebSocket()` (hibernation API), serializing session attachments for reconnect/rehydration. Client-supplied names/IDs do not replace verified identity.
 
-**Inactivity cleanup:** If all players disconnect, the DO sets a 5-minute alarm. On alarm, if still empty, all DO storage is purged.
+**Inactivity cleanup:** Empty Bridge rooms use a five-minute alarm. Regicide uses 30 minutes and preserves pending result work until successful persistence.
 
 ### WebSocket Protocol
 
-Client → Server:
-```
-join | bid | pass | selectPartner | playCard | playAgain
-```
-
-Server → Client:
-```
-state          # Full PlayerGameView (sent on reconnect and state changes)
-joined | bidMade | bidWon | cardPlayed | trickWon | gameOver
-youArePartner  # Whispered only to the partner
-playerDisconnected | playerReconnected
-```
+Use `src/protocol.ts` for the complete Bridge message unions and
+`src/regicide/room.ts` for Regicide messages/views. Both include more than
+basic card actions: lobby/host controls, spectators and reconnect behavior
+must stay consistent with their respective clients. Do not share a game's
+message schema merely because both use WebSockets.
 
 ### Game Rules Summary
 
 - 4 players, 13 cards each; hands with ≤4 points are redealt
 - Bidding: levels 1–7 × suits (♣ < ♦ < ♥ < ♠ < 🚫 no-trump), encoded as integers 0–34
 - Bidder calls a card to designate their partner (secret until that card is played)
-- Must follow suit; can't lead trump until trump has been broken
-- Win condition: bidder + partner win ≥ (bid level + 6) tricks
+- Must follow suit; can't lead unbroken trump unless only trump remains
+- Bidder + partner need ≥ (bid level + 6) tricks; the game ends as soon as either side secures the contract result, possibly before all 13 tricks
 
-## Bot AI (Intermediate)
+## Bridge bots
 
-Bots live entirely server-side in `src/game-room.ts`. All bot methods are private on `GameRoom`.
-
-### Bidding (`getBotBid`)
-- Calculate HCP (A=4 K=3 Q=2 J=1) + distribution bonus (+1 per card beyond 4 in any suit)
-- < 12 pts → pass; 12–14 → level 1; 15–17 → level 2; 18+ → level 3 (hard cap)
-- Trump suit = longest suit in hand (tiebreak: highest HCP). Suits ≤ 3 cards → prefer no-trump
-- If preferred suit already bid, try next higher suits at same level up to no-trump; never overbid level
-
-### Partner card selection (`getBotPartnerCard`)
-- Picks the highest card the bidder doesn't hold (tries A♠ → K♠ → ... → 2♣)
-
-### Card play (`getBotCard`) — confidence model
-- **Before** partner card is played in a trick: confidence = 0.65
-- **After** partner card revealed (checked by scanning if `state.partnerCard` is still in any hand): confidence = 0.85
-- Each decision rolls `Math.random() < confidence`; failures fall back to basic logic (win if possible, else lowest)
-
-### Bidder team play (`getBotCardAsBidderTeam`, `getBotLeadCard` with `onBidderTeam=true`)
-- Following: if a teammate is currently winning → dump lowest (don't steal). If opposition winning → play lowest winning card, else dump lowest.
-- Leading: prefer suit the **partner bid** (bid history signal = they have more of it). Else lead longest non-trump suit.
-
-### Opposition play (`getBotCardAsOpposition`, `getBotLeadCard` with `onBidderTeam=false`)
-- Following: if an opposition teammate already winning → dump lowest. Else try to win; if can't, dump lowest **non-trump** (conserve trump to block bidder later).
-- Leading: never lead trump. Avoid suits the bidder or partner bid (they're strong there). Prefer neutral suits; fallback to any non-trump.
-
-### Bid history as suit signal
-`state.bidHistory` entries where `bidNum !== null` indicate the bidder/partner likely holds more of that suit.
+Bots run server-side in `src/game-room.ts`; full-information God bot decisions
+live in `src/god-bot.ts`. The server supports Basic, Intermediate, Advanced,
+Sophisticated and God levels; the lobby exposes Intermediate, Advanced,
+Sophisticated and God controls. Do not assume one level's heuristics describe
+all bots. Games starting with two or more bots are practice/unrated; that
+status is snapshotted at the deal and still permits participant history/replay.
 
 ## Telegram Bot (group chats)
 
-Webhook `POST /api/telegram` → `parseUpdate` (`src/telegram.ts`, group/supergroup messages only) → `handleTelegramCommand` (`src/index.ts`). Always answers 200.
+`POST /api/telegram` handles group/supergroup commands and inline-menu
+callbacks. `src/telegram.ts` owns parsing/Bot API helpers; `src/index.ts`
+dispatches to the game room namespaces. `GAME_CATALOG` in `src/games.ts`
+provides the available games and their choice metadata; static hub tiles
+remain separately authored.
 
 | Command | Aliases | Does |
 |---|---|---|
-| `/newbridge` | `/newgame` (original, kept) | Bridge room linked to the group; reply also hints at `/newregicide` |
-| `/newregicide` | `/newregicidegame` | Regicide room linked to the group |
-| `/leaderboard` | | Group board for both games (Bridge by ELO, Regicide by rating) |
+| `/newgame` | | Shows inline Bridge/Regicide choices; selection creates a room in the same group |
+| `/newbridge` | | Creates a Bridge room directly |
+| `/newregicide` | `/newregicidegame` | Creates a Regicide room directly |
+| `/leaderboard` | | Group board for both games (Bridge ELO, separate Regicide rating) |
 | `/help` | `/start` | Lists the commands |
 
-- **No BotFather step:** the "/" menu (`/newbridge`, `/newregicide`, `/leaderboard`; `/help` and the aliases work but aren't listed) is registered from code with `setMyCommands` (scope `all_group_chats`), once per Worker instance, on the first command it handles. Telegram delivers `/commands` to bots even in privacy mode, so new commands only need code. The one-time `setWebhook` registration is the only bot-owner setup.
-- **Group Regicide rooms** check membership on join (`isChatMember`, as Bridge does). Non-members play and are rated globally but are flagged "⚠️ not in group" and don't count in `regicide_group_stats`. The room posts lobby joins, the start, and the result with rating changes to the group.
-- User-controlled names in new bot messages go through `escapeHtml` (messages use HTML parse mode).
-- Tests: `tests/telegram.test.ts` (parser) and `tests/ui/telegram-live.pw.js` (live webhook with every Bot API call captured via Miniflare `outboundService` — nothing reaches Telegram).
+- `/newgame` is **not** a Bridge alias. Buttons use `callback_data=newgame:<id>`; selection callbacks are acknowledged before room creation in the originating group. Unsupported/private selections are acknowledged without creating rooms.
+- The registered "/" menu is `newgame`, `leaderboard`, `help`, managed from code with `setMyCommands` for group chats. Typed game shortcuts remain supported but need not appear in that menu. Game additions do not need a manual BotFather command-menu update; webhook/domain changes remain intentional bot-owner operations.
+- Group Regicide joins verify membership. Non-members can play and be rated globally but are flagged "⚠️ not in group" and excluded from `regicide_group_stats`. Lobby/start/result posts go to the linked group.
+- Escape user-controlled names in HTML bot messages. Keep games' ratings and group boards separate.
+- `tests/telegram.test.ts` and `tests/ui/telegram-live.pw.js` cover parsing/local webhook behavior with Bot API calls captured via Miniflare `outboundService`; they do not establish real Telegram/WebView compatibility. See [testing](docs/testing.md) for chooser/callback regression requirements.
 
 ## Game History & Replay
 
@@ -175,15 +179,19 @@ Heuristic only (no DDS). Rates each played card:
 
 ## Local Dev Login
 
-Telegram Login Widget doesn't work on `localhost`. For local testing there's a dev-only path:
-- `.dev.vars` sets `ALLOW_DEV_LOGIN=1` (file is gitignored; never commit)
+Telegram Login Widget doesn't work on `localhost`. Both games support a dev-only path; use [local setup](docs/development.md), not the legacy `.env.example`:
+- `.dev.vars` sets a local-only `JWT_SECRET` and `ALLOW_DEV_LOGIN=1` (file is gitignored; never commit)
 - `POST /api/auth/dev { displayName }` mints a JWT for a deterministic fake `telegram_id` (hashed from the name, so the same name always hits the same row)
 - The frontend shows a "Dev Login" box only when `location.hostname` is `localhost` / `127.0.0.1`
-- The endpoint is gated by `env.ALLOW_DEV_LOGIN === '1'`, so it's a no-op in production
+- The endpoint is gated by `env.ALLOW_DEV_LOGIN === '1'`; the flag must be absent in production, not merely hidden by the frontend
 
 ## Legacy Code
 
-The root-level Python files (`bridge.py`, `handlers.py`, `main.py`, etc.) are an archived Telegram bot implementation. `bridge.py` was the original source of truth for game logic, which was ported to `bridge.ts`. The Python code is not actively deployed.
+The root-level Python files (`bridge.py`, `handlers.py`, `main.py`, etc.), Python directories, `requirements.txt`, Docker setup, `start_local.sh` and `.env.example` are archived Telegram-bot implementation material. `bridge.py` supplied the original rules ported to `src/bridge.ts`. Do not reorganize/delete these as part of game additions; they are not the deployed Worker setup.
+
+Dated plans/specs, feature notes and screenshot/validation folders remain
+historical evidence. Use the [documentation index](docs/README.md) to distinguish
+them from current setup, architecture and validation instructions.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
