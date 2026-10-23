@@ -4,7 +4,8 @@ const { build } = require('esbuild');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-exports.startWorker = async function startWorker(port = 4210, testBindings = {}) {
+// `outboundService` (optional) intercepts the Worker's outbound fetches, e.g. to capture Telegram API calls.
+exports.startWorker = async function startWorker(port = 4210, testBindings = {}, { outboundService } = {}) {
   const root = path.join(__dirname, '../..');
   const { outputFiles } = await build({
     absWorkingDir: root, entryPoints: ['src/index.ts'], bundle: true, write: false,
@@ -21,6 +22,7 @@ exports.startWorker = async function startWorker(port = 4210, testBindings = {})
     d1Databases: ['DB'], d1Persist: path.join(state, 'db'),
     bindings: { JWT_SECRET: 'local-chat-test-only', ALLOW_DEV_LOGIN: '1', TELEGRAM_BOT_USERNAME: 'local_test_only', ...testBindings },
     assets: { directory: path.join(root, 'static'), routerConfig: { has_user_worker: true, static_routing: { user_worker: ['/api/*'] } } },
+    ...(outboundService ? { outboundService } : {}),
   });
   await mf.ready;
   const db = await mf.getD1Database('DB');

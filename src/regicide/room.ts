@@ -6,7 +6,8 @@ import {
   enemyStats, shieldValue, currentAttack, canYield, cardSuit, cardRank, soloTier,
   type RegicideGame, type Rng,
 } from './engine';
-import { recordRegicideGame, type RegicideOutcome } from './db';
+import { recordRegicideGame, recordRegicideGroupResult, type RegicideOutcome } from './db';
+import { sendMessage, isChatMember, escapeHtml } from '../telegram';
 
 export const MAX_PLAYERS = 4;
 const INACTIVITY_MS = 30 * 60 * 1000;
@@ -18,6 +19,8 @@ interface RoomPlayer {
   connected: boolean;
   /** Verified Telegram id (the Worker only issues `tg_<id>` player ids after checking the JWT). */
   telegramId: number | null;
+  /** Set when the room belongs to a Telegram group: verified members count toward that group's board. */
+  isGroupMember?: boolean;
 }
 
 interface SeatRating { seat: number; name: string; before: number; after: number; delta: number }
@@ -32,8 +35,12 @@ interface RoomState {
   /** Seeded PRNG state, so shuffles are reproducible from a seed (dev/test can pin it at create). */
   rngState: number;
   /** Rating result of the most recent rated game. */
-  lastRating: { gameId: string; outcome: RegicideOutcome; changes: SeatRating[] } | null;
+  lastRating: { gameId: string; outcome: RegicideOutcome; defeated: number; changes: SeatRating[] } | null;
   ratedGameId: string | null;
+  /** Telegram group this room was started from (/newregicide), if any. */
+  groupId?: string | null;
+  groupName?: string | null;
+  origin?: string | null;
 }
 
 interface Session {
@@ -52,6 +59,10 @@ function roomRng(state: RoomState): Rng {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+const ROYAL_NAMES: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'King' };
+const SUIT_NAMES: Record<string, string> = { H: 'Hearts', D: 'Diamonds', C: 'Clubs', S: 'Spades' };
+const royalName = (card: string) => `${ROYAL_NAMES[cardRank(card)] ?? cardRank(card)} of ${SUIT_NAMES[cardSuit(card) ?? ''] ?? ''}`;
 
 function telegramIdOf(playerId: string): number | null {
   const id = /^tg_(\d+)$/.exec(playerId)?.[1];
@@ -87,10 +98,13 @@ export class RegicideRoom extends DurableObject {
 
     if (url.pathname === '/create' && request.method === 'POST') {
       if (await this.getState()) return Response.json({ ok: false }, { status: 409 });
-      const { roomCode, seed } = (await request.json()) as { roomCode: string; seed?: number };
+      const { roomCode, seed, groupId, groupName, origin } = (await request.json()) as {
+        roomCode: string; seed?: number; groupId?: string | null; groupName?: string | null; origin?: string | null;
+      };
       const rngState = Number.isInteger(seed) ? Number(seed) : crypto.getRandomValues(new Uint32Array(1))[0] | 0;
       const state: RoomState = {
         roomCode, players: [], hostId: null, game: null, gameNo: 0, gameId: null, rngState, lastRating: null, ratedGameId: null,
+        groupId: groupId ?? null, groupName: groupName ?? null, origin: origin ?? null,
       };
       await this.ctx.storage.put('state', state);
       await this.ctx.storage.setAlarm(Date.now() + INACTIVITY_MS);
@@ -153,12 +167,14 @@ export class RegicideRoom extends DurableObject {
     const state = await this.getState();
     if (!state) return;
 
+    const before = { players: state.players.length, gameNo: state.gameNo, ended: state.ratedGameId };
     const error = this.handle(state, session, msg);
     if (error) {
       ws.send(JSON.stringify({ type: 'error', message: error }));
       return;
     }
     await this.rateFinishedGame(state);
+    if (state.groupId) await this.notifyGroup(state, before);
     await this.save(state);
     this.broadcast(state);
   }
@@ -301,9 +317,14 @@ export class RegicideRoom extends DurableObject {
         gameId: pending.gameId, roomCode: state.roomCode, numPlayers: pending.numPlayers, defeated: pending.defeated,
         outcome: pending.outcome, jestersUsed: pending.jestersUsed, telegramIds: rated.map((p) => p.telegramId!),
       });
+      if (state.groupId) {
+        const members = pending.seats.filter((p) => p.isGroupMember && p.telegramId !== null).map((p) => p.telegramId!);
+        await recordRegicideGroupResult(db, state.groupId, members, pending.defeated, pending.outcome === 'won');
+      }
       state.lastRating = {
         gameId: pending.gameId,
         outcome: pending.outcome,
+        defeated: pending.defeated,
         changes: changes.map((c) => {
           const seat = pending.seats.findIndex((p) => p.telegramId === c.telegramId);
           return { seat, name: pending.seats[seat]?.name ?? '', before: c.before, after: c.after, delta: c.delta };
@@ -311,6 +332,40 @@ export class RegicideRoom extends DurableObject {
       };
     } catch (err) {
       console.error('Regicide rating failed', err);
+    }
+  }
+
+  /** Group-chat updates for rooms started from Telegram, like Bridge's (lobby joins, start, result). */
+  private async notifyGroup(state: RoomState, before: { players: number; gameNo: number; ended: string | null }): Promise<void> {
+    const env = this.env as Env;
+    const groupId = state.groupId!;
+    const post = (text: string) => this.ctx.waitUntil(sendMessage(env.TELEGRAM_BOT_TOKEN, groupId, text));
+    const names = (list: RoomPlayer[]) => list.map((p) => escapeHtml(p.name)).join(', ');
+    const link = state.origin ? `${state.origin}/regicide/#${state.roomCode}` : null;
+
+    // New seat: verify membership first, so the group board only counts the group.
+    if (state.players.length > before.players) {
+      const joined = state.players[state.players.length - 1];
+      joined.isGroupMember = joined.telegramId !== null && await isChatMember(env.TELEGRAM_BOT_TOKEN, groupId, joined.telegramId);
+      const n = state.players.length;
+      post(`👤 <b>${escapeHtml(joined.name)}</b> joined the Regicide lobby (${n}/4)\nPlayers: ${names(state.players)}${link && n < 4 ? `\n♛ Join → ${link}` : ''}`);
+    }
+    if (state.gameNo > before.gameNo && state.game) {
+      const n = state.game.numPlayers;
+      post(`♛ Regicide started — ${n === 1 ? 'solo run' : `${n} players`}: ${names(state.players)}`);
+    }
+    // A game was just rated (won, lost, or ended early after a royal fell).
+    const rating = state.lastRating;
+    if (rating && state.ratedGameId !== before.ended && rating.gameId === state.ratedGameId) {
+      const game = state.game;
+      const defeated = rating.defeated;
+      const lines = rating.changes.map((c) => `  ${escapeHtml(c.name)}: ${c.delta >= 0 ? '+' : ''}${c.delta} → ${c.after}`).join('\n');
+      const head = rating.outcome === 'won'
+        ? `👑 <b>Victory!</b> ${names(state.players)} stormed the castle — all 12 royals defeated!`
+        : rating.outcome === 'lost'
+          ? `💀 The castle held. ${names(state.players)} defeated ${defeated}/12 royals${game?.enemy ? ` before falling to the ${royalName(game.enemy)}` : ''}.`
+          : `🏳️ Regicide game ended early at ${defeated}/12 royals.`;
+      post(`${head}${lines ? `\n${lines}` : ''}`);
     }
   }
 
@@ -351,7 +406,12 @@ export function buildView(state: RoomState, playerId: string) {
     roomCode: state.roomCode,
     gameNo: state.gameNo,
     you: { seat, isHost: state.hostId === playerId, id: playerId },
-    players: state.players.map((p) => ({ id: p.id, name: p.name, connected: p.connected, isHost: p.id === state.hostId })),
+    players: state.players.map((p) => ({
+      id: p.id, name: p.name, connected: p.connected, isHost: p.id === state.hostId,
+      // Only meaningful in group rooms: false = plays and is rated, but doesn't count for the group board.
+      isGroupMember: state.groupId ? p.isGroupMember ?? null : null,
+    })),
+    groupName: state.groupName ?? null,
     gameId: state.gameId,
     lastRating: state.lastRating,
     game: game && {

@@ -8,7 +8,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "test:ui": "playwright test",
-    "test:e2e": "playwright test tests/ui/chat-live.pw.js tests/ui/chat-hand.pw.js tests/ui/card-drag.pw.js tests/ui/ui-polish.pw.js tests/ui/identity-live.pw.js tests/ui/regicide-live.pw.js",
+    "test:e2e": "playwright test tests/ui/chat-live.pw.js tests/ui/chat-hand.pw.js tests/ui/card-drag.pw.js tests/ui/ui-polish.pw.js tests/ui/identity-live.pw.js tests/ui/regicide-live.pw.js tests/ui/telegram-live.pw.js",
     "test:pr": "node tests/run-pr-checks.cjs"
   },
   "devDependencies": {

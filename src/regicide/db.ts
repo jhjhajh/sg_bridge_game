@@ -154,3 +154,45 @@ export async function getRegicideStats(db: D1Database): Promise<RegicidePlayerSt
     avgDefeated: r.avg_defeated ?? 0,
   }));
 }
+
+/** Counts a finished game for the group, for players verified as members (like Bridge's recordGroupResult). */
+export async function recordRegicideGroupResult(db: D1Database, groupId: string, memberIds: number[], defeated: number, won: boolean): Promise<void> {
+  if (memberIds.length === 0) return;
+  await db.batch([...new Set(memberIds)].map((id) =>
+    db.prepare(
+      `INSERT INTO regicide_group_stats (group_id, telegram_id, games_played, wins, best_defeated)
+       VALUES (?, ?, 1, ?, ?)
+       ON CONFLICT(group_id, telegram_id) DO UPDATE SET
+         games_played = games_played + 1,
+         wins = wins + excluded.wins,
+         best_defeated = MAX(best_defeated, excluded.best_defeated)`,
+    ).bind(groupId, id, won ? 1 : 0, defeated),
+  ));
+}
+
+export interface RegicideGroupEntry {
+  displayName: string;
+  rating: number;
+  gamesPlayed: number;
+  wins: number;
+  bestDefeated: number;
+}
+
+/** Group members who have played Regicide in this group, ranked by their (global) Regicide rating — as Bridge's group board ranks by ELO. */
+export async function getRegicideGroupLeaderboard(db: D1Database, groupId: string, limit = 5): Promise<RegicideGroupEntry[]> {
+  const rows = await db
+    .prepare(
+      `SELECT u.display_name, COALESCE(r.rating, 1000) AS rating, gs.games_played, gs.wins, gs.best_defeated
+       FROM regicide_group_stats gs
+       JOIN users u ON u.telegram_id = gs.telegram_id
+       LEFT JOIN regicide_ratings r ON r.telegram_id = gs.telegram_id
+       WHERE gs.group_id = ? AND gs.games_played > 0
+       ORDER BY rating DESC, gs.games_played DESC
+       LIMIT ?`,
+    )
+    .bind(groupId, limit)
+    .all<{ display_name: string; rating: number; games_played: number; wins: number; best_defeated: number }>();
+  return (rows.results ?? []).map((r) => ({
+    displayName: r.display_name, rating: r.rating, gamesPlayed: r.games_played, wins: r.wins, bestDefeated: r.best_defeated,
+  }));
+}

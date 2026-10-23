@@ -184,3 +184,4 @@ button.top-bar-room::after { content: ' 🔗'; font-size: 0.65rem; letter-spacin
 .rc-over-rating .rc-delta-up { color: var(--success); font-weight: 700; }
 .rc-over-rating .rc-delta-down { color: var(--danger); font-weight: 700; }
 .rc-best-win { color: var(--gold); font-weight: 700; }
+.rc-player-meta { display: inline-flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }

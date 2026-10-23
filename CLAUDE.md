@@ -124,6 +124,22 @@ Bots live entirely server-side in `src/game-room.ts`. All bot methods are privat
 ### Bid history as suit signal
 `state.bidHistory` entries where `bidNum !== null` indicate the bidder/partner likely holds more of that suit.
 
+## Telegram Bot (group chats)
+
+Webhook `POST /api/telegram` → `parseUpdate` (`src/telegram.ts`, group/supergroup messages only) → `handleTelegramCommand` (`src/index.ts`). Always answers 200.
+
+| Command | Aliases | Does |
+|---|---|---|
+| `/newbridge` | `/newgame` (original, kept) | Bridge room linked to the group; reply also hints at `/newregicide` |
+| `/newregicide` | `/newregicidegame` | Regicide room linked to the group |
+| `/leaderboard` | | Group board for both games (Bridge by ELO, Regicide by rating) |
+| `/help` | `/start` | Lists the commands |
+
+- **No BotFather step:** the "/" menu is registered from code with `setMyCommands` (scope `all_group_chats`), once per Worker instance, on the first command it handles. Telegram delivers `/commands` to bots even in privacy mode, so new commands only need code. The one-time `setWebhook` registration is the only bot-owner setup.
+- **Group Regicide rooms** check membership on join (`isChatMember`, as Bridge does). Non-members play and are rated globally but are flagged "⚠️ not in group" and don't count in `regicide_group_stats` (migration `0012`). The room posts lobby joins, the start, and the result with rating changes to the group.
+- User-controlled names in new bot messages go through `escapeHtml` (messages use HTML parse mode).
+- Tests: `tests/telegram.test.ts` (parser) and `tests/ui/telegram-live.pw.js` (live webhook with every Bot API call captured via Miniflare `outboundService` — nothing reaches Telegram).
+
 ## Game History & Replay
 
 Completed games (practice *and* rated) are replayable from the home screen via **Match History**.
@@ -172,7 +188,7 @@ The root-level Python files (`bridge.py`, `handlers.py`, `main.py`, etc.) are an
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **fun-central-mini-apps-12e919** (1352 symbols, 3534 relationships, 111 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **fun-central-mini-apps-12e919** (1453 symbols, 3850 relationships, 120 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

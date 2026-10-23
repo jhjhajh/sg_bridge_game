@@ -248,7 +248,11 @@ function renderLobby() {
   const list = $('lobby-players');
   list.replaceChildren();
   players.forEach((p, seat) => {
-    const row = playerRow(p, seat, { meta: p.isHost ? el('span', 'rc-host', '👑 Host') : null });
+    const meta = el('span', 'rc-player-meta');
+    if (p.isHost) meta.append(el('span', 'rc-host', '👑 Host'));
+    // Same signal as Bridge: non-members still play and are rated, but don't count for this group.
+    if (p.isGroupMember === false) meta.append(el('span', 'not-ranked-badge', '⚠️ not in group'));
+    const row = playerRow(p, seat, { meta });
     if (you.isHost && p.id !== you.id) {
       const kick = el('button', 'kick-btn', '✕');
       kick.type = 'button';
@@ -265,9 +269,9 @@ function renderLobby() {
   setup.classList.toggle('hidden', n === 0);
   if (n > 0) {
     const [hand, extra] = SETUP[n];
-    setup.textContent = n === 1
+    setup.textContent = (n === 1
       ? `🤝 Solo · ${hand}-card hand · ${extra}`
-      : `🤝 Co-op · ${n} players · ${hand} cards each · ${extra}`;
+      : `🤝 Co-op · ${n} players · ${hand} cards each · ${extra}`) + (view.groupName ? ` · 💬 ${view.groupName}` : '');
   }
 
   const seated = you.seat >= 0;

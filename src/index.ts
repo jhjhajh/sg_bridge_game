@@ -1,12 +1,12 @@
 import type { Env } from './types';
 import { verifyTelegramAuth, signJwt, verifyJwt } from './auth';
 import { upsertUser, getUser, updateDisplayName, getLeaderboard, upsertGroup, getGroupLeaderboard } from './db';
-import { sendMessage, parseUpdate } from './telegram';
+import { sendMessage, parseUpdate, setBotCommands, escapeHtml, type TelegramCommand } from './telegram';
 import { getPlayerStats, getPairStats } from './stats-db';
 import { placeBet, getUserBet, getBettingLeaderboard } from './betting-db';
 import { listUserGames, getGameReplay } from './history';
 import { normalizePlayerName, telegramDisplayName, UNNAMED_TELEGRAM_USER } from './player-name';
-import { getRegicideLeaderboard, getRegicideStats } from './regicide/db';
+import { getRegicideLeaderboard, getRegicideStats, getRegicideGroupLeaderboard } from './regicide/db';
 
 export { GameRoom } from './game-room';
 export { RegicideRoom } from './regicide/room';
@@ -18,6 +18,83 @@ function generateRoomCode(): string {
   return Array.from(arr, (b) => chars[b % chars.length]).join('');
 }
 
+/** Creates a Regicide room (retrying on the rare code collision). Returns null if none could be allocated. */
+async function createRegicideRoom(env: Env, extra: Record<string, unknown> = {}): Promise<string | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const roomCode = generateRoomCode();
+    const res = await env.REGICIDE_ROOM.getByName(roomCode).fetch(
+      new Request('https://internal/create', { method: 'POST', body: JSON.stringify({ roomCode, ...extra }) }),
+    );
+    if (res.ok) return roomCode;
+  }
+  return null;
+}
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+const HELP_TEXT = [
+  '🎪 <b>Fun Central</b> — card games for this group',
+  '',
+  '/newbridge — start a Floating Bridge game (4 players, rated ELO)',
+  '/newregicide — start a Regicide game (co-op, 1–4 players)',
+  '/leaderboard — this group\'s Bridge and Regicide leaderboards',
+  '/help — this message',
+  '',
+  'Sign in with Telegram on the game page so your results count for this group.',
+].join('\n');
+
+/** Handles one bot command from a group chat. */
+async function handleTelegramCommand(cmd: TelegramCommand, env: Env, origin: string): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const who = `<b>@${escapeHtml(cmd.fromUsername)}</b>`;
+  switch (cmd.command) {
+    case 'newbridge': {
+      await upsertGroup(env.DB, cmd.chatId, cmd.groupName);
+      const roomCode = generateRoomCode();
+      await env.GAME_ROOM.getByName(roomCode).fetch(
+        new Request('https://internal/create', {
+          method: 'POST',
+          body: JSON.stringify({ roomCode, groupId: cmd.chatId, groupName: cmd.groupName, origin }),
+        }),
+      );
+      await sendMessage(token, cmd.chatId, `🃏 ${who} started a new Bridge game!\nJoin → ${origin}/bridge/#${roomCode}\n\n<i>Fancy co-op instead? /newregicide</i>`);
+      return;
+    }
+    case 'newregicide': {
+      await upsertGroup(env.DB, cmd.chatId, cmd.groupName);
+      const roomCode = await createRegicideRoom(env, { groupId: cmd.chatId, groupName: cmd.groupName, origin });
+      await sendMessage(token, cmd.chatId, roomCode
+        ? `♛ ${who} started a Regicide game — storm the castle together (1–4 players)!\nJoin → ${origin}/regicide/#${roomCode}`
+        : '♛ Could not start a Regicide game right now — please try again.');
+      return;
+    }
+    case 'leaderboard': {
+      const [bridge, regicide] = await Promise.all([
+        getGroupLeaderboard(env.DB, cmd.chatId),
+        getRegicideGroupLeaderboard(env.DB, cmd.chatId),
+      ]);
+      if (bridge.top.length === 0 && regicide.length === 0) {
+        await sendMessage(token, cmd.chatId, '🏆 No games played in this group yet! Try /newbridge or /newregicide.');
+        return;
+      }
+      const rank = (i: number) => MEDALS[i] ?? `${i + 1}.`;
+      const bridgeRows = bridge.top.length
+        ? bridge.top.map((e) => `${MEDALS[e.rank - 1] ?? `${e.rank}.`} ${escapeHtml(e.displayName)} — ELO ${e.elo} (${e.wins}W / ${e.gamesPlayed}G)`).join('\n')
+        : '<i>No games yet — /newbridge</i>';
+      const regicideRows = regicide.length
+        ? regicide.map((e, i) => `${rank(i)} ${escapeHtml(e.displayName)} — ${e.rating} (best ${e.bestDefeated}/12, ${e.gamesPlayed}G)`).join('\n')
+        : '<i>No games yet — /newregicide</i>';
+      await sendMessage(token, cmd.chatId, `🏆 <b>Group Leaderboard</b>\n\n🃏 <b>Bridge</b>\n${bridgeRows}\n\n♛ <b>Regicide</b>\n${regicideRows}`);
+      return;
+    }
+    case 'help':
+      await sendMessage(token, cmd.chatId, HELP_TEXT);
+      return;
+  }
+}
+
+/** The "/" command menu is registered from code once per Worker instance (no BotFather step). */
+let botCommandsRegistered = false;
+
 async function getAuthClaims(
   request: Request,
   secret: string,
@@ -28,7 +105,7 @@ async function getAuthClaims(
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Public bot username for the Telegram Login Widget
@@ -148,14 +225,8 @@ export default {
       // A fixed shuffle seed is a dev/test-only convenience.
       const body = await request.json<{ seed?: unknown }>().catch(() => ({} as { seed?: unknown }));
       const seed = env.ALLOW_DEV_LOGIN === '1' && Number.isInteger(body.seed) ? body.seed : undefined;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const roomCode = generateRoomCode();
-        const res = await env.REGICIDE_ROOM.getByName(roomCode).fetch(
-          new Request('https://internal/create', { method: 'POST', body: JSON.stringify({ roomCode, seed }) }),
-        );
-        if (res.ok) return Response.json({ roomCode });
-      }
-      return Response.json({ error: 'Could not allocate a room' }, { status: 503 });
+      const roomCode = await createRegicideRoom(env, { seed });
+      return roomCode ? Response.json({ roomCode }) : Response.json({ error: 'Could not allocate a room' }, { status: 503 });
     }
 
     if (url.pathname === '/api/regicide/ws') {
@@ -218,51 +289,15 @@ export default {
     }
 
     if (url.pathname === '/api/telegram' && request.method === 'POST') {
-      // Always respond 200 immediately — Telegram retries on non-200
+      // Always respond 200 — Telegram retries on non-200
       const body = await request.json().catch(() => null);
-      const origin = new URL(request.url).origin;
-
       const cmd = parseUpdate(body);
       if (!cmd) return new Response(null, { status: 200 });
-
-      if (cmd.command === 'newgame') {
-        await upsertGroup(env.DB, cmd.chatId, cmd.groupName);
-        const roomCode = generateRoomCode();
-        const stub = env.GAME_ROOM.getByName(roomCode);
-        await stub.fetch(
-          new Request('https://internal/create', {
-            method: 'POST',
-            body: JSON.stringify({ roomCode, groupId: cmd.chatId, groupName: cmd.groupName, origin }),
-          }),
-        );
-        await sendMessage(
-          env.TELEGRAM_BOT_TOKEN,
-          cmd.chatId,
-          `🃏 <b>@${cmd.fromUsername}</b> started a new game!\nJoin → ${origin}/bridge/#${roomCode}`,
-        );
+      if (!botCommandsRegistered) {
+        botCommandsRegistered = true;
+        ctx.waitUntil(setBotCommands(env.TELEGRAM_BOT_TOKEN));
       }
-
-      if (cmd.command === 'leaderboard') {
-        const data = await getGroupLeaderboard(env.DB, cmd.chatId);
-        if (data.top.length === 0) {
-          await sendMessage(
-            env.TELEGRAM_BOT_TOKEN,
-            cmd.chatId,
-            '🏆 No games played in this group yet!',
-          );
-        } else {
-          const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
-          const rows = data.top
-            .map((e) => `${medals[e.rank - 1] ?? `${e.rank}.`} ${e.displayName} — ELO ${e.elo} (${e.wins}W / ${e.gamesPlayed}G)`)
-            .join('\n');
-          await sendMessage(
-            env.TELEGRAM_BOT_TOKEN,
-            cmd.chatId,
-            `🏆 <b>Group Leaderboard</b>\n${rows}`,
-          );
-        }
-      }
-
+      await handleTelegramCommand(cmd, env, new URL(request.url).origin).catch((err) => console.error('Telegram command failed', err));
       return new Response(null, { status: 200 });
     }
 

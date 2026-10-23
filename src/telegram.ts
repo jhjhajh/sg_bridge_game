@@ -17,6 +17,11 @@ export async function sendMessage(token: string, chatId: string, text: string): 
   }
 }
 
+/** Escapes text for Telegram's HTML parse mode. */
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /**
  * Check if a Telegram user is a member of a chat.
  * Returns false on any error (fail-safe: unknown = non-member).
@@ -41,8 +46,44 @@ export async function isChatMember(
   }
 }
 
+/** Commands the bot handles, after aliases are resolved. */
+export type CommandName = 'newbridge' | 'newregicide' | 'leaderboard' | 'help';
+
+/** What people can type (lowercase letters, digits, underscores — Telegram's rules). */
+const ALIASES: Record<string, CommandName> = {
+  newgame: 'newbridge', // the original command, kept for existing groups
+  newbridge: 'newbridge',
+  newregicide: 'newregicide',
+  newregicidegame: 'newregicide',
+  leaderboard: 'leaderboard',
+  help: 'help',
+  start: 'help',
+};
+
+/** The "/" menu Telegram shows in groups — registered from code, no BotFather step needed. */
+export const BOT_COMMANDS: { command: string; description: string }[] = [
+  { command: 'newbridge', description: 'Start a Floating Bridge game (4 players)' },
+  { command: 'newregicide', description: 'Start a Regicide game (co-op, 1–4 players)' },
+  { command: 'leaderboard', description: "This group's Bridge and Regicide leaderboards" },
+  { command: 'help', description: 'What this bot can do' },
+];
+
+/** Sets the bot's command menu for group chats. Fire-and-forget like sendMessage. */
+export async function setBotCommands(token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${TG_API}/bot${token}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands: BOT_COMMANDS, scope: { type: 'all_group_chats' } }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export interface TelegramCommand {
-  command: 'newgame' | 'leaderboard';
+  command: CommandName;
   chatId: string;
   groupName: string;
   fromUserId: number;
@@ -72,14 +113,15 @@ export function parseUpdate(body: unknown): TelegramCommand | null {
     if (!text.startsWith('/')) return null;
 
     // Strip bot mention: /newgame@BotName → newgame
-    const cmdRaw = text.split(' ')[0].split('@')[0].slice(1).toLowerCase();
-    if (cmdRaw !== 'newgame' && cmdRaw !== 'leaderboard') return null;
+    const cmdRaw = text.split(/\s/)[0].split('@')[0].slice(1).toLowerCase();
+    const command = Object.prototype.hasOwnProperty.call(ALIASES, cmdRaw) ? ALIASES[cmdRaw] : null;
+    if (!command) return null;
 
     const from = msg.from;
     if (!from) return null;
 
     return {
-      command: cmdRaw as 'newgame' | 'leaderboard',
+      command,
       chatId: String(chat.id),
       groupName: chat.title ?? 'Group',
       fromUserId: from.id,
