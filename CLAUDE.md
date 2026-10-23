@@ -188,7 +188,7 @@ The root-level Python files (`bridge.py`, `handlers.py`, `main.py`, etc.) are an
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **fun-central-mini-apps-12e919** (1453 symbols, 3850 relationships, 120 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 relationships, 37 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -204,7 +204,7 @@ This project is indexed by GitNexus as **fun-central-mini-apps-12e919** (1453 sy
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/fun-central-mini-apps-12e919/process/{processName}` — trace the full execution flow step by step
+3. `READ gitnexus://repo/sg_bridge_game/process/{processName}` — trace the full execution flow step by step
 4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
 
 ## When Refactoring
@@ -243,10 +243,10 @@ This project is indexed by GitNexus as **fun-central-mini-apps-12e919** (1453 sy
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/fun-central-mini-apps-12e919/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/fun-central-mini-apps-12e919/clusters` | All functional areas |
-| `gitnexus://repo/fun-central-mini-apps-12e919/processes` | All execution flows |
-| `gitnexus://repo/fun-central-mini-apps-12e919/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/sg_bridge_game/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/sg_bridge_game/clusters` | All functional areas |
+| `gitnexus://repo/sg_bridge_game/processes` | All execution flows |
+| `gitnexus://repo/sg_bridge_game/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 
