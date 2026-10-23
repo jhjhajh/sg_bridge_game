@@ -4,7 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A multiplayer Singaporean Floating Bridge card game running on Cloudflare Workers with Durable Objects for state management and WebSocket for real-time communication.
+**Fun Central** — a hub of multiplayer mini apps (card games) running on Cloudflare Workers with Durable Objects for state management and WebSocket for real-time communication. The original and largest app is Singaporean Floating Bridge; Regicide (co-op, 1–4 players) is the second.
+
+## Fun Central (multi-app layout)
+
+| URL | Files | Backend |
+|-----|-------|---------|
+| `/` | `static/index.html`, `static/hub.css` | — (hub with a tile per app) |
+| `/bridge/` | `static/bridge/index.html` + root `static/app.js`, `hand.js`, `style.css`, `view.*` | `GameRoom` DO (`GAME_ROOM`), `/api/create`, `/api/ws`, … |
+| `/regicide/` | `static/regicide/{index.html,regicide.js,regicide.css}` | `RegicideRoom` DO (`REGICIDE_ROOM`), `/api/regicide/create`, `/api/regicide/ws` |
+
+- `static/fun.css` is the shared theme (tokens, buttons, inputs, toasts) for the hub and every app except Bridge, which keeps its own `style.css`.
+- Old Bridge invite links (`/#ROOM`) are redirected by the hub to `/bridge/#ROOM`. Bridge invite messages now use `/bridge/#ROOM`.
+- `localStorage.playerName` is shared across apps so a player's name carries over.
+- **Adding an app:** put its page under `static/<app>/`, give it its own Durable Object class (new `[[migrations]]` tag in `wrangler.toml`, binding in `Env`, export from `src/index.ts`, and add it to `tests/ui/live-worker.cjs`), namespace its routes under `/api/<app>/`, and add a tile to `static/index.html`.
+
+### Regicide (`src/regicide/`)
+- **`engine.ts`** — pure rules engine (no Cloudflare deps), unit-tested in `tests/regicide-engine.test.ts`. Card codes are rank+suit letter (`7H`, `10S`, `KC`), Jesters `X1`/`X2`; pile index 0 = top. Actions (`playCards`, `yieldTurn`, `discardCards`, `chooseNextPlayer`, `flipSoloJester`) mutate the game and return an error string or `null`.
+- **`room.ts`** — `RegicideRoom` DO: lobby (≤4 seats, first joiner hosts), start, relays actions to the engine, and broadcasts a per-player view (own hand only). Purges storage 30 min after the last socket disconnects. No D1 logging or ratings (co-op).
+- Rule calls worth knowing: spades played before a Jester start shielding once it's played (clubs don't retro-double); solo players may yield; diamonds draw round-robin from the current player and skip full hands; an exact kill puts the royal on top of the tavern deck.
 
 ## Commands
 
@@ -22,7 +40,7 @@ npm run test      # Run vitest
 
 ## Architecture
 
-### Backend (Cloudflare Workers + Durable Objects)
+### Bridge Backend (Cloudflare Workers + Durable Objects)
 
 - **`src/index.ts`** — Worker entry point. Routes `POST /api/create` (generates room code, provisions DO), `/api/ws` (upgrades to WebSocket), `/api/games/mine` + `/api/games/:gameId` (history + replay), and dev-only `/api/auth/dev`.
 - **`src/game-room.ts`** — The Durable Object. One instance per room. Holds the full `GameState` in DO storage, manages the WebSocket connections for all 4 players, and runs the entire game state machine (lobby → bidding → partner selection → play → game over).
@@ -33,10 +51,10 @@ npm run test      # Run vitest
 - **`src/move-rating.ts`** — Heuristic move rating engine (`rateGame`, `summarize`); labels each played card as best/good/inaccuracy/mistake/blunder.
 - **`src/game-logging.ts`** — Writes `game_hands` (with per-seat `telegram_id`), `game_tricks`, and `game_metadata` (with `is_practice`). Runs for **all** games, including practice.
 
-### Frontend (Vanilla JS SPA)
+### Bridge Frontend (Vanilla JS SPA)
 
 - **`static/app.js`** — Connects via WebSocket, sends/receives messages, handles all screen transitions, auto-reconnects with exponential backoff.
-- **`static/index.html`** — 6 screen states: home, lobby, bidding, partner selection, play, game-over.
+- **`static/bridge/index.html`** — 6 screen states: home, lobby, bidding, partner selection, play, game-over. (Served at `/bridge/`; it references the root-level `/app.js`, `/style.css`, etc.)
 - **`static/style.css`** — CSS-only card rendering (no images), dark glassmorphism theme.
 
 ### Key Design Decisions
@@ -149,7 +167,7 @@ The root-level Python files (`bridge.py`, `handlers.py`, `main.py`, etc.) are an
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 relationships, 37 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **fun-central-mini-apps-12e919** (1352 symbols, 3534 relationships, 111 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -165,7 +183,7 @@ This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 rel
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/sg_bridge_game/process/{processName}` — trace the full execution flow step by step
+3. `READ gitnexus://repo/fun-central-mini-apps-12e919/process/{processName}` — trace the full execution flow step by step
 4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
 
 ## When Refactoring
@@ -204,10 +222,10 @@ This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 rel
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/sg_bridge_game/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/sg_bridge_game/clusters` | All functional areas |
-| `gitnexus://repo/sg_bridge_game/processes` | All execution flows |
-| `gitnexus://repo/sg_bridge_game/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/fun-central-mini-apps-12e919/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/fun-central-mini-apps-12e919/clusters` | All functional areas |
+| `gitnexus://repo/fun-central-mini-apps-12e919/processes` | All execution flows |
+| `gitnexus://repo/fun-central-mini-apps-12e919/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 

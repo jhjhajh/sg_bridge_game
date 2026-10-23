@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
     return route.continue();
   });
-  await page.goto('/');
+  await page.goto('/bridge/');
 });
 
 async function fixture(page, mode, phase = 'play') {
@@ -173,7 +173,7 @@ for (const mode of ['classic', '25d']) {
       if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
       return route.continue();
     });
-    await page.goto('/'); await fixture(page, mode);
+    await page.goto('/bridge/'); await fixture(page, mode);
     // Make the document unquestionably scrollable in both directions. No touch CSS overrides.
     await page.evaluate(() => {
       const space = document.createElement('div'); space.style.height = '1000px'; document.body.append(space);

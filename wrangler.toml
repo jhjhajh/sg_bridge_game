@@ -10,9 +10,17 @@ directory = "./static"
 name = "GAME_ROOM"
 class_name = "GameRoom"
 
+[[durable_objects.bindings]]
+name = "REGICIDE_ROOM"
+class_name = "RegicideRoom"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["GameRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RegicideRoom"]
 
 [[d1_databases]]
 binding = "DB"

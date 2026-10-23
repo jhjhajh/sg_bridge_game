@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#130e1c">
+  <title>Regicide · Fun Central</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/fun.css">
+  <link rel="stylesheet" href="/regicide/regicide.css">
+</head>
+<body>
+  <header class="rc-topbar">
+    <a id="tb-back" href="/" class="icon-btn" aria-label="Back to Fun Central">←</a>
+    <div class="rc-brand"><span aria-hidden="true">👑</span> <span class="rc-brand-text">Regicide</span></div>
+    <button id="tb-room" type="button" class="room-pill hidden" aria-label="Copy invite link"></button>
+    <span class="tb-spacer"></span>
+    <span id="tb-conn" class="conn-dot hidden" title="Reconnecting…" aria-label="Reconnecting"></span>
+    <button id="btn-rules" type="button" class="icon-btn" aria-label="How to play">?</button>
+    <button id="btn-leave" type="button" class="btn btn-ghost btn-small hidden">Leave</button>
+  </header>
+
+  <div id="toasts" class="toast-stack" role="status" aria-live="polite"></div>
+
+  <!-- Home -->
+  <section id="screen-home" class="screen screen-center">
+    <div class="home-card panel">
+      <div class="home-hero" aria-hidden="true">
+        <span class="hero-card hc1">J</span><span class="hero-card hc2 red">Q</span><span class="hero-card hc3">K</span>
+      </div>
+      <h1>Regicide</h1>
+      <p class="home-sub">A co-operative card game for 1–4 players. Work together to defeat all 12 corrupted royals.</p>
+
+      <label class="field">
+        <span class="field-label">Your name</span>
+        <input id="input-name" class="input" type="text" maxlength="24" autocomplete="nickname" placeholder="e.g. Alice" enterkeyhint="done">
+      </label>
+      <button id="btn-create" type="button" class="btn btn-primary btn-block">Create a room</button>
+
+      <div class="divider"><span>or join a room</span></div>
+
+      <div class="join-row">
+        <input id="input-code" class="input input-code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE" aria-label="Room code" enterkeyhint="go">
+        <button id="btn-join" type="button" class="btn btn-secondary">Join</button>
+      </div>
+
+      <button id="btn-rules-home" type="button" class="btn btn-ghost btn-block">📖 How to play</button>
+    </div>
+  </section>
+
+  <!-- Lobby -->
+  <section id="screen-lobby" class="screen screen-center hidden">
+    <div class="lobby-card panel">
+      <p class="field-label">Room code</p>
+      <div class="lobby-code" id="lobby-code">----</div>
+      <button id="btn-share" type="button" class="btn btn-secondary btn-block">🔗 Share invite link</button>
+
+      <h2 class="lobby-heading">Players <span id="lobby-count" class="lobby-count"></span></h2>
+      <ul id="lobby-players" class="lobby-players"></ul>
+
+      <div id="lobby-setup" class="lobby-setup"></div>
+
+      <button id="btn-start" type="button" class="btn btn-primary btn-block hidden">Start game</button>
+      <p id="lobby-wait" class="lobby-wait hidden"></p>
+    </div>
+  </section>
+
+  <!-- Game -->
+  <section id="screen-game" class="screen hidden">
+    <div class="board">
+      <div class="board-main">
+        <div class="castle-bar">
+          <div id="castle-pips" class="castle-pips" aria-label="Castle progress"></div>
+          <div class="pile-counts">
+            <span class="pile" title="Tavern deck (draw pile)"><span aria-hidden="true">🂠</span> <b id="tavern-count">0</b><span class="pile-label"> tavern</span></span>
+            <span class="pile" title="Discard pile"><span aria-hidden="true">🗑</span> <b id="discard-count">0</b><span class="pile-label"> discard</span></span>
+          </div>
+        </div>
+
+        <div class="enemy-panel" id="enemy-panel">
+          <div id="enemy-card" class="enemy-card"></div>
+          <div class="enemy-info">
+            <div class="enemy-name" id="enemy-name"></div>
+            <div class="hp">
+              <div class="hp-track"><div id="hp-fill" class="hp-fill"></div></div>
+              <div class="hp-text"><b id="hp-left">0</b> / <span id="hp-max">0</span> HP</div>
+            </div>
+            <div class="enemy-stats">
+              <span class="stat stat-attack" title="Damage dealt to the active player after shields"><span aria-hidden="true">⚔️</span> <b id="enemy-attack">0</b><span id="enemy-attack-base" class="stat-base"></span></span>
+              <span class="stat stat-shield" title="Spade shield against this enemy"><span aria-hidden="true">🛡️</span> <b id="enemy-shield">0</b></span>
+            </div>
+            <div id="enemy-immunity" class="immunity"></div>
+          </div>
+        </div>
+
+        <div class="played-row">
+          <span class="played-label">This fight</span>
+          <div id="played-cards" class="played-cards"></div>
+        </div>
+        <div id="last-action" class="last-action" aria-live="polite"></div>
+      </div>
+
+      <aside class="board-side">
+        <div id="players" class="players" aria-label="Players"></div>
+        <details id="log-details" class="log-details">
+          <summary>Game log</summary>
+          <ol id="log" class="log"></ol>
+        </details>
+      </aside>
+
+      <div class="hand-area">
+        <div id="turn-banner" class="turn-banner"></div>
+        <div id="hand" class="hand" aria-label="Your hand"></div>
+        <div class="hand-footer">
+          <span id="hand-total" class="hand-total"></span>
+          <button id="btn-bestfit" type="button" class="btn btn-secondary btn-small hidden">✨ Best fit</button>
+          <span id="preview" class="preview" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-bar" id="action-bar">
+      <div class="action-inner">
+        <button id="btn-flip" type="button" class="btn btn-secondary hidden">🃏 Flip Jester <span id="flip-count" class="badge"></span></button>
+        <button id="btn-yield" type="button" class="btn btn-secondary">Yield</button>
+        <button id="btn-act" type="button" class="btn btn-primary">Play</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Jester: choose next player -->
+  <div id="modal-jester" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="jester-title">
+    <div class="modal-card panel">
+      <div class="modal-emoji" aria-hidden="true">🃏</div>
+      <h2 id="jester-title">Who goes next?</h2>
+      <p class="modal-sub">The Jester cancelled the enemy's immunity. Pick the player to take the next turn.</p>
+      <div id="jester-choices" class="jester-choices"></div>
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div id="modal-over" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="over-title">
+    <div class="modal-card panel">
+      <div id="over-emoji" class="modal-emoji" aria-hidden="true"></div>
+      <h2 id="over-title"></h2>
+      <p id="over-sub" class="modal-sub"></p>
+      <div id="over-stats" class="over-stats"></div>
+      <div class="modal-actions">
+        <button id="btn-again" type="button" class="btn btn-primary btn-block">Play again</button>
+        <button id="btn-over-close" type="button" class="btn btn-ghost btn-block">View board</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rules -->
+  <div id="modal-rules" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+    <div class="modal-card panel rules-card">
+      <button type="button" class="icon-btn modal-close" data-close aria-label="Close">✕</button>
+      <h2 id="rules-title">How to play</h2>
+      <div class="rules">
+        <p><b>Goal:</b> together, defeat all 12 royals — 4 Jacks, then 4 Queens, then 4 Kings. If anyone can't survive a hit, everyone loses.</p>
+        <table class="rules-table">
+          <thead><tr><th>Enemy</th><th>Attack</th><th>Health</th></tr></thead>
+          <tbody><tr><td>Jack</td><td>10</td><td>20</td></tr><tr><td>Queen</td><td>15</td><td>30</td></tr><tr><td>King</td><td>20</td><td>40</td></tr></tbody>
+        </table>
+        <h3>Your turn</h3>
+        <ol>
+          <li><b>Attack</b> with a card or combo — or <b>yield</b> (not allowed if everyone else just yielded).</li>
+          <li>Your cards' <b>suit powers</b> trigger.</li>
+          <li><b>Deal damage</b> equal to the cards' value. If the enemy falls, you go again against the next one.</li>
+          <li>Otherwise the enemy <b>strikes back</b>: discard cards worth at least its attack (minus shields).</li>
+        </ol>
+        <h3>Suit powers</h3>
+        <ul class="powers">
+          <li><span class="suit red">♥</span> <b>Heal</b> — shuffle the discard pile and return that many cards to the bottom of the tavern deck.</li>
+          <li><span class="suit red">♦</span> <b>Draw</b> — players draw that many cards in turn, starting with you (no one exceeds their hand size).</li>
+          <li><span class="suit">♣</span> <b>Double</b> — the attack deals double damage.</li>
+          <li><span class="suit">♠</span> <b>Shield</b> — reduce this enemy's attack by that much for the rest of the fight.</li>
+        </ul>
+        <p>Each enemy is <b>immune</b> to its own suit's power (the damage still counts).</p>
+        <h3>Combos</h3>
+        <ul>
+          <li><b>Animal Companion (A)</b> is worth 1 and can pair with any one other card. Both suits' powers apply.</li>
+          <li><b>Sets</b>: 2–4 cards of the same rank totalling 10 or less (e.g. 5+5, 3+3+3, 2+2+2+2).</li>
+        </ul>
+        <h3>Defeating royals</h3>
+        <p>Hit an enemy for <b>exactly</b> its remaining health and it joins your side — it goes on top of the tavern deck (J=10, Q=15, K=20).</p>
+        <h3>The Jester 🃏</h3>
+        <p>Play it alone: it cancels the enemy's immunity (spades already played start shielding) and you choose who goes next. No damage is dealt or taken.</p>
+        <h3>Players</h3>
+        <table class="rules-table">
+          <thead><tr><th>Players</th><th>Hand size</th><th>Jesters</th></tr></thead>
+          <tbody><tr><td>1 (solo)</td><td>8</td><td>2 flips*</td></tr><tr><td>2</td><td>7</td><td>0</td></tr><tr><td>3</td><td>6</td><td>1</td></tr><tr><td>4</td><td>5</td><td>2</td></tr></tbody>
+        </table>
+        <p class="rules-note">*Solo: twice per game, before attacking or before taking damage, flip a Jester to discard your hand and draw 8 fresh cards. Win with 0 / 1 / 2 flips used for gold / silver / bronze.</p>
+        <p class="rules-note">Table talk: don't reveal what's in your hand — that's the challenge!</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/regicide/regicide.js"></script>
+</body>
+</html>

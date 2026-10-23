@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
     return route.continue();
   });
-  await page.goto(origin);
+  await page.goto(`${origin}/bridge/`);
 });
 
 async function fixture(page, mode) {
@@ -70,7 +70,7 @@ test('capture synthetic before/after UI evidence', async ({ browser }) => {
       recordVideo: { dir: path.join(directory, 'recording'), size: { width: 390, height: 844 } } });
     const page = await context.newPage();
     await page.route('**/*', routeCapture);
-    await page.goto(origin); await fixture(page, mode);
+    await page.goto(`${origin}/bridge/`); await fixture(page, mode);
     await page.evaluate(() => { window.scrollTo(0, 0); document.body.scrollTop = 0; });
     const p = await corner(page.locator('#play-hand .hand-card').nth(3)); const target = await tablePoint(page);
     const session = await context.newCDPSession(page);
@@ -90,13 +90,13 @@ test('capture synthetic before/after UI evidence', async ({ browser }) => {
     await video.saveAs(path.join(directory, `${stage}-${mode}-swing.webm`)); await video.delete();
     const lobbyPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await lobbyPage.route('**/*', routeCapture);
-    await lobbyPage.goto(origin); await lobby(lobbyPage, mode);
+    await lobbyPage.goto(`${origin}/bridge/`); await lobby(lobbyPage, mode);
     await lobbyPage.waitForTimeout(400);
     await lobbyPage.screenshot({ path: path.join(directory, `${stage}-${mode}-lobby.png`) }); await lobbyPage.close();
   }
   const desktop = await browser.newContext({ viewport: { width: 1366, height: 900 },
     recordVideo: { dir: path.join(directory, 'recording'), size: { width: 1366, height: 900 } } });
-  const page = await desktop.newPage(); await page.route('**/*', routeCapture); await page.goto(origin);
+  const page = await desktop.newPage(); await page.route('**/*', routeCapture); await page.goto(`${origin}/bridge/`);
   for (const mode of ['classic', '25d']) {
     await fixture(page, mode); await page.waitForTimeout(350);
     for (const index of [3]) {

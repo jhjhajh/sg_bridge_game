@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
     return route.continue();
   });
-  await page.goto('/');
+  await page.goto('/bridge/');
 });
 
 async function showFixture(page, phase = 'play', overrides = {}) {
@@ -52,7 +52,7 @@ async function showFixture(page, phase = 'play', overrides = {}) {
 
 async function baselineMarkup() {
   let baseline = await fs.readFile(path.join(__dirname, 'fixtures/classic-5ab300a.html'), 'utf8');
-  const current = await fs.readFile(path.join(__dirname, '../../static/index.html'), 'utf8');
+  const current = await fs.readFile(path.join(__dirname, '../../static/bridge/index.html'), 'utf8');
   // Keep any independent renderer scripts when the hand PR is integrated.
   const extraScripts = [...current.matchAll(/<script\b[^>]*src="[^"]+"[^>]*><\/script>/g)]
     .map(match => match[0]).filter(tag => !tag.includes('/view.js') && !baseline.includes(tag));
@@ -181,12 +181,12 @@ for (const width of [320, 390, 768, 1366]) {
 test('Classic game pixels match master and restore exactly after a switch', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 900 });
   const baselineHtml = await baselineMarkup();
-  await page.route(`${origin}/`, route => route.fulfill({ contentType: 'text/html', body: baselineHtml }));
-  await page.goto('/');
+  await page.route(`${origin}/bridge/`, route => route.fulfill({ contentType: 'text/html', body: baselineHtml }));
+  await page.goto('/bridge/');
   await showFixture(page);
   const before = await page.locator('.play-container').screenshot({ animations: 'disabled' });
-  await page.unroute(`${origin}/`);
-  await page.goto('/');
+  await page.unroute(`${origin}/bridge/`);
+  await page.goto('/bridge/');
   await showFixture(page);
   const classic = await page.locator('.play-container').screenshot({ animations: 'disabled' });
   expect(classic.equals(before)).toBe(true);
@@ -340,12 +340,12 @@ test('capture actual synthetic browser screenshots for review', async ({ page })
   for (const width of [1366, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     const baselineHtml = await baselineMarkup();
-    await page.route(`${origin}/`, route => route.fulfill({ contentType: 'text/html', body: baselineHtml }));
-    await page.goto('/');
+    await page.route(`${origin}/bridge/`, route => route.fulfill({ contentType: 'text/html', body: baselineHtml }));
+    await page.goto('/bridge/');
     await showFixture(page);
     await page.screenshot({ path: path.join(directory, `before-play-${width}.png`), fullPage: true, animations: 'disabled' });
-    await page.unroute(`${origin}/`);
-    await page.goto('/');
+    await page.unroute(`${origin}/bridge/`);
+    await page.goto('/bridge/');
     for (const phase of ['lobby', 'bidding', 'partner', 'play', 'gameover']) {
       await showFixture(page, phase);
       for (const mode of ['classic', '25d']) {

@@ -380,6 +380,11 @@ body.has-spectators .screen {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
 }
 .home-container .btn { width: 100%; }
+.fc-back-link {
+  display: block; width: fit-content; margin: -0.75rem 0 0.75rem;
+  color: var(--text-dim); font-size: 0.8rem; font-weight: 600; text-decoration: none;
+}
+.fc-back-link:hover { color: var(--accent-light); }
 #btn-create { margin-bottom: 0.75rem; }
 #btn-create-group { margin-bottom: 0; }
 #btn-join { margin-bottom: 0.75rem; }

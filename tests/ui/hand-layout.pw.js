@@ -22,7 +22,7 @@ async function initializePage(page) {
   await page.addInitScript(() => { window.alert = message => { window.lastAlert = message; }; });
   // Optional integration fixture; the standalone hand keeps its normal view.
   if (process.env.HAND_TABLE_VIEW) await page.addInitScript(mode => localStorage.setItem('bridge.tableView', mode), process.env.HAND_TABLE_VIEW);
-  await page.goto('/');
+  await page.goto('/bridge/');
 }
 test.beforeEach(async ({ page }) => initializePage(page));
 

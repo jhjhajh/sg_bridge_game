@@ -8,6 +8,7 @@ import { listUserGames, getGameReplay } from './history';
 import { normalizePlayerName, telegramDisplayName, UNNAMED_TELEGRAM_USER } from './player-name';
 
 export { GameRoom } from './game-room';
+export { RegicideRoom } from './regicide/room';
 
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -121,7 +122,7 @@ export default {
         sendMessage(
           env.TELEGRAM_BOT_TOKEN,
           body.groupId,
-          `🃏 <b>${fromName}</b> started a new game!\nJoin → ${origin}/#${roomCode}`,
+          `🃏 <b>${fromName}</b> started a new game!\nJoin → ${origin}/bridge/#${roomCode}`,
         ).catch(() => {});
       }
       return Response.json({ roomCode });
@@ -139,6 +140,24 @@ export default {
         }),
       );
       return Response.json({ ok: true });
+    }
+
+    // --- Regicide (co-op, 1–4 players) ---
+    if (url.pathname === '/api/regicide/create' && request.method === 'POST') {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const roomCode = generateRoomCode();
+        const res = await env.REGICIDE_ROOM.getByName(roomCode).fetch(
+          new Request('https://internal/create', { method: 'POST', body: JSON.stringify({ roomCode }) }),
+        );
+        if (res.ok) return Response.json({ roomCode });
+      }
+      return Response.json({ error: 'Could not allocate a room' }, { status: 503 });
+    }
+
+    if (url.pathname === '/api/regicide/ws') {
+      const roomCode = url.searchParams.get('room')?.toUpperCase();
+      if (!roomCode || !/^[A-Z0-9]{4}$/.test(roomCode)) return new Response('Missing room code', { status: 400 });
+      return env.REGICIDE_ROOM.getByName(roomCode).fetch(request);
     }
 
     if (url.pathname === '/api/ws') {
@@ -183,7 +202,7 @@ export default {
         await sendMessage(
           env.TELEGRAM_BOT_TOKEN,
           cmd.chatId,
-          `🃏 <b>@${cmd.fromUsername}</b> started a new game!\nJoin → ${origin}/#${roomCode}`,
+          `🃏 <b>@${cmd.fromUsername}</b> started a new game!\nJoin → ${origin}/bridge/#${roomCode}`,
         );
       }
 

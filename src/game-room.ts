@@ -53,7 +53,7 @@ export class GameRoom extends DurableObject {
         sendMessage(
           (this.env as Env).TELEGRAM_BOT_TOKEN,
           state.groupId,
-          `🃏 Join the game → ${origin}/#${state.roomCode}`,
+          `🃏 Join the game → ${origin}/bridge/#${state.roomCode}`,
         ).catch(() => {});
       }
       return Response.json({ ok: true });
@@ -683,7 +683,7 @@ export class GameRoom extends DurableObject {
     if (state.groupId && state.origin) {
       const playerNames = state.players.map((p) => p.name).join(', ');
       const n = state.players.length;
-      const joinLink = `${state.origin}/#${state.roomCode}`;
+      const joinLink = `${state.origin}/bridge/#${state.roomCode}`;
       sendMessage(
         (this.env as Env).TELEGRAM_BOT_TOKEN,
         state.groupId,

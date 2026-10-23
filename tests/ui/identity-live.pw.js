@@ -43,7 +43,7 @@ for (const mode of ['classic', '25d']) test(`profile resolves before deep-link j
   await initialize(page, { authToken: auth.token, playerName: ' \u200b ', playerId: 'stale-browser-id', 'bridge.tableView': mode });
   let release; const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/api/me', async route => { await gate; await route.continue(); });
-  await page.goto(`${worker.origin}/#${code}:old-url-id`);
+  await page.goto(`${worker.origin}/bridge/#${code}:old-url-id`);
   await page.waitForTimeout(120);
   expect(await page.evaluate(() => joinFrames)).toEqual([]);
   release();
@@ -68,7 +68,7 @@ test('temporary profile failure retains the login and offers retry before a name
   const auth = await login('Retry Alice'); const code = await room();
   await initialize(page, { authToken: auth.token, playerName: ' ', playerId: 'stable-local-id' }, { roomCode: code, joinRole: 'player' });
   await page.route('**/api/me', route => route.fulfill({ status: 503, json: { error: 'Test outage' } }));
-  await page.goto(worker.origin);
+  await page.goto(`${worker.origin}/bridge/`);
   await expect(page.locator('#screen-home')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('authToken'))).toBe(auth.token);
   expect(await page.evaluate(() => joinFrames)).toEqual([]);
@@ -78,7 +78,7 @@ test('temporary profile failure retains the login and offers retry before a name
 
 test('verified Telegram response with no usable name requires manual name, preserves ID and persists it', async ({ page }) => {
   const code = await room(); await initialize(page);
-  await page.goto(`${worker.origin}/#${code}`);
+  await page.goto(`${worker.origin}/bridge/#${code}`);
   const payload = signed({ id: 991234501, first_name: ' ', last_name: '', username: '' });
   await page.evaluate(payload => onTelegramAuth(payload), payload);
   await expect(page.locator('#input-name')).toBeEditable();
@@ -93,7 +93,7 @@ test('verified Telegram response with no usable name requires manual name, prese
 
 test('missing/late unsafe SDK data is never treated as verified login', async ({ page }) => {
   const code = await room(); await initialize(page, { playerName: ' ' });
-  await page.goto(`${worker.origin}/#${code}`);
+  await page.goto(`${worker.origin}/bridge/#${code}`);
   await page.evaluate(() => { window.Telegram = { WebApp: { initDataUnsafe: { user: { id: 1, first_name: 'Unverified' } } } }; });
   await expect(page.locator('#login-section')).toBeVisible();
   expect(await page.evaluate(() => ({ token: authToken, name: playerName, sent: joinFrames.length }))).toEqual({ token: null, name: '', sent: 0 });
@@ -102,7 +102,7 @@ test('missing/late unsafe SDK data is never treated as verified login', async ({
 });
 
 test('actual room rejects malformed joins and never blanks an existing player', async ({ page }) => {
-  const auth = await login('Server Alice'); const code = await room(); await initialize(page); await page.goto(worker.origin);
+  const auth = await login('Server Alice'); const code = await room(); await initialize(page); await page.goto(`${worker.origin}/bridge/`);
   await page.evaluate(({ token, code }) => new Promise(resolve => {
     window.rawMessages = [];
     window.rawSocket = new WebSocket(`${location.origin.replace('http', 'ws')}/api/ws?room=${code}&playerId=ignored&token=${encodeURIComponent(token)}`);
@@ -141,7 +141,7 @@ test('two verified clients retain names and seats across reload and socket repla
     for (const name of ['Identity Alice', 'Identity Blair']) {
       const auth = await login(name); const page = await browser.newPage({ viewport: { width: 390, height: 844 } }); clients.push(page);
       await initialize(page, { authToken: auth.token, playerName: ' \u200b ', playerId: 'stale-id' }, { roomCode: code, joinRole: 'player' });
-      await page.goto(worker.origin); await expectNamed(page, name);
+      await page.goto(`${worker.origin}/bridge/`); await expectNamed(page, name);
     }
     for (const page of clients) await expect.poll(() => page.evaluate(() => gameState.players.length)).toBe(2);
     const identities = await Promise.all(clients.map(page => page.evaluate(() => ({ id: playerId, seat: gameState.mySeat }))));
@@ -158,7 +158,7 @@ test('two verified clients retain names and seats across reload and socket repla
 
 test('invalid saved credential stops auto-join and preserves the room for sign-in', async ({ page }) => {
   const code = await room(); await initialize(page, { authToken: 'invalid-synthetic-token', playerName: 'Old name', playerId: 'tg_991234599' }, { roomCode: code, joinRole: 'player' });
-  await page.goto(worker.origin); await expect(page.locator('#login-section')).toBeVisible();
+  await page.goto(`${worker.origin}/bridge/`); await expect(page.locator('#login-section')).toBeVisible();
   expect(await page.evaluate(() => ({ token: authToken, sent: joinFrames.length, code: roomCode }))).toEqual({ token: null, sent: 0, code });
 });
 
@@ -167,7 +167,7 @@ test('profile recovery repairs a legacy blank account name from verified claims'
   const row = await worker.db.prepare('SELECT telegram_id FROM users WHERE display_name = ?').bind('Profile Alice').first();
   await worker.db.prepare('UPDATE users SET display_name = ? WHERE telegram_id = ?').bind(' ', row.telegram_id).run();
   await initialize(page, { authToken: auth.token, playerName: ' ', playerId: 'old' }, { roomCode: code, joinRole: 'player' });
-  await page.goto(worker.origin); await expectNamed(page, 'Profile Alice');
+  await page.goto(`${worker.origin}/bridge/`); await expectNamed(page, 'Profile Alice');
   expect(await worker.db.prepare('SELECT display_name FROM users WHERE telegram_id = ?').bind(row.telegram_id).first()).toEqual({ display_name: 'Profile Alice' });
 });
 
@@ -176,7 +176,7 @@ test('a late profile response cannot replace a newer verified login', async ({ p
   await initialize(page, { authToken: auth.token, playerName: 'Earlier Alice' }, { roomCode: code, joinRole: 'player' });
   let release; const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/api/me', async route => { await gate; await route.continue(); });
-  await page.goto(worker.origin); await page.waitForTimeout(50);
+  await page.goto(`${worker.origin}/bridge/`); await page.waitForTimeout(50);
   await page.evaluate(payload => onTelegramAuth(payload), signed({ id: 991234588, first_name: 'Later Blair' }));
   await expectNamed(page, 'Later Blair'); release();
   await page.waitForTimeout(150);
@@ -184,7 +184,7 @@ test('a late profile response cannot replace a newer verified login', async ({ p
 });
 
 test('bidding/partner browser fixture keeps seat identity through duplicate and repaired names', async ({ page }) => {
-  await initialize(page); await page.goto(worker.origin);
+  await initialize(page); await page.goto(`${worker.origin}/bridge/`);
   for (const firstName of ['Earlier name', 'Alex']) {
     for (const phase of ['bidding', 'partner']) {
       await page.evaluate(({ firstName, phase }) => {

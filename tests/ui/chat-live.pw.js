@@ -42,7 +42,7 @@ async function client(browser, code, name, mode, mobile = false) {
       return originalSend.call(this, value);
     };
   }, { code, name, mode, id });
-  await page.goto(worker.origin);
+  await page.goto(`${worker.origin}/bridge/`);
   await expect(page.locator('#screen-lobby')).toBeVisible();
   await expect.poll(() => page.evaluate(() => ws?.readyState === WebSocket.OPEN && chatEpoch !== null)).toBe(true);
   return { page, context };

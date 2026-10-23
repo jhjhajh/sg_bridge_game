@@ -135,6 +135,7 @@ export interface PlayerGameView {
 
 export interface Env {
   GAME_ROOM: DurableObjectNamespace;
+  REGICIDE_ROOM: DurableObjectNamespace;
   DB: D1Database;
   JWT_SECRET: string;
   TELEGRAM_BOT_TOKEN: string;

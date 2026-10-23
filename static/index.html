@@ -2,356 +2,92 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Floating Bridge</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1117">
+  <title>Fun Central</title>
+  <script>
+    // Old Bridge invite links were /#ROOM — send them to the Bridge app.
+    const toBridge = () => { if (/^#[A-Za-z0-9]{4}(:|$)/.test(location.hash)) location.replace('/bridge/' + location.hash); };
+    toBridge();
+    addEventListener('hashchange', toBridge);
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="/view.css">
-  <script defer src="/view.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/fun.css">
+  <link rel="stylesheet" href="/hub.css">
 </head>
 <body>
+  <main class="hub">
+    <header class="hub-header">
+      <div class="hub-logo" aria-hidden="true">🎪</div>
+      <h1>Fun Central</h1>
+      <p class="hub-tagline">Card games to play with your group — pick one and share the room code.</p>
+      <p id="hub-greeting" class="hub-greeting hidden"></p>
+    </header>
 
-  <!-- Top bar (visible when in a game) -->
-  <div id="top-bar" class="top-bar hidden">
-    <span id="top-bar-room" class="top-bar-room"></span>
-    <span id="top-bar-name" class="top-bar-name"></span>
-    <div class="view-picker" role="group" aria-label="Table view">
-      <button type="button" data-table-view="classic" aria-pressed="true">Classic</button>
-      <button type="button" data-table-view="25d" aria-pressed="false">2.5D</button>
-    </div>
-    <button id="btn-leave-global" class="btn-leave-global">Leave</button>
-  </div>
-
-  <!-- Spectator bar (visible when spectators are present) -->
-  <div id="spectator-bar" class="spectator-bar hidden"></div>
-
-  <!-- Betting widget (fixed banner for spectators during bidding) -->
-  <div id="betting-widget" class="betting-widget hidden">
-    <div class="betting-widget-inner">
-      <span class="betting-widget-label">🎲 Predict the outcome:</span>
-      <div id="betting-buttons" class="betting-buttons">
-        <button id="bet-win-btn" class="btn-bet btn-bet-win">Bidder Wins</button>
-        <button id="bet-lose-btn" class="btn-bet btn-bet-lose">Bidder Loses</button>
-      </div>
-      <div id="betting-result" class="betting-result hidden"></div>
-    </div>
-  </div>
-
-  <!-- Reconnecting overlay -->
-  <div id="overlay-reconnect" class="overlay hidden">
-    <div class="overlay-content">
-      <div class="spinner"></div>
-      <p>Reconnecting...</p>
-    </div>
-  </div>
-
-  <!-- Home screen -->
-  <div id="screen-home" class="screen active">
-    <div class="home-container">
-      <div class="view-picker view-picker-home" role="group" aria-label="Table view">
-        <button type="button" data-table-view="classic" aria-pressed="true">Classic</button>
-        <button type="button" data-table-view="25d" aria-pressed="false">2.5D</button>
-      </div>
-      <h1>♠♥ Floating Bridge ♦♣</h1>
-      <p class="subtitle">Singaporean Card Game</p>
-
-      <div id="leaderboard-section"></div>
-      <p id="identity-status" class="subtitle" role="status" aria-live="polite"></p>
-      <button id="btn-retry-identity" type="button" class="btn btn-secondary hidden">Retry profile</button>
-
-      <!-- Telegram login section (shown when not logged in) -->
-      <div id="login-section">
-        <div id="telegram-widget-container"></div>
-        <div id="dev-login-section" class="hidden" style="margin-top:16px;padding:12px;border:1px dashed #888;border-radius:8px">
-          <div style="font-size:12px;color:#aaa;margin-bottom:8px">Localhost dev login (not available in production)</div>
-          <div class="form-group">
-            <label for="input-dev-name">Dev display name</label>
-            <input type="text" id="input-dev-name" placeholder="e.g. Alice" maxlength="20" autocomplete="off">
+    <section class="hub-grid" aria-label="Games">
+      <a class="game-tile tile-bridge" href="/bridge/">
+        <div class="tile-art" aria-hidden="true">
+          <span class="art-suit s1">♠</span><span class="art-suit s2 red">♥</span><span class="art-suit s3 red">♦</span><span class="art-suit s4">♣</span>
+        </div>
+        <div class="tile-body">
+          <div class="tile-title-row">
+            <h2>Floating Bridge</h2>
+            <span class="tile-badge">Rated</span>
           </div>
-          <button id="btn-dev-login" class="btn btn-secondary">Dev Login</button>
+          <p>The Singapore classic. Bid, call a secret partner, and win your tricks.</p>
+          <div class="tile-meta">
+            <span class="chip">👥 4 players</span>
+            <span class="chip">⚔️ Competitive</span>
+            <span class="chip">🤖 Bots</span>
+          </div>
+          <span class="tile-cta">Play Bridge <span aria-hidden="true">→</span></span>
+        </div>
+      </a>
+
+      <a class="game-tile tile-regicide" href="/regicide/">
+        <div class="tile-art" aria-hidden="true">
+          <span class="art-crown">👑</span>
+          <span class="art-royal r1">J</span><span class="art-royal r2 red">Q</span><span class="art-royal r3">K</span>
+        </div>
+        <div class="tile-body">
+          <div class="tile-title-row">
+            <h2>Regicide</h2>
+            <span class="tile-badge tile-badge-new">New</span>
+          </div>
+          <p>Team up to storm the castle and defeat all 12 corrupted royals.</p>
+          <div class="tile-meta">
+            <span class="chip">👥 1–4 players</span>
+            <span class="chip">🤝 Co-op</span>
+            <span class="chip">🧩 Solo mode</span>
+          </div>
+          <span class="tile-cta">Play Regicide <span aria-hidden="true">→</span></span>
+        </div>
+      </a>
+
+      <div class="game-tile tile-soon" aria-disabled="true">
+        <div class="tile-art" aria-hidden="true"><span class="art-soon">＋</span></div>
+        <div class="tile-body">
+          <div class="tile-title-row"><h2>More games</h2></div>
+          <p>New mini apps are on the way. Got one your group loves? Tell us in the chat.</p>
+          <div class="tile-meta"><span class="chip">🛠️ Coming soon</span></div>
         </div>
       </div>
+    </section>
 
-      <!-- Game section (shown after login or as guest) -->
-      <div id="game-section" class="hidden">
-        <div class="form-group">
-          <label for="input-name">Your Name</label>
-          <input type="text" id="input-name" placeholder="Enter your name" maxlength="64" autocomplete="off">
-        </div>
+    <footer class="hub-footer">Fun Central · Made for friends who like cards</footer>
+  </main>
 
-        <button id="btn-create" class="btn btn-primary">Create Game</button>
-        <button id="btn-create-group" class="btn btn-secondary hidden"></button>
-
-        <div class="divider"><span>or</span></div>
-
-        <div class="form-group">
-          <label for="input-room">Room Code</label>
-          <input type="text" id="input-room" placeholder="e.g. AB12" maxlength="4" autocomplete="off" style="text-transform:uppercase">
-        </div>
-
-        <button id="btn-join" class="btn btn-secondary">Join Game</button>
-
-        <button id="btn-match-history" class="btn btn-ghost hidden" onclick="showMatchHistory()">📜 Match History</button>
-
-        <div id="auth-status" class="auth-status"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- History (my games) screen -->
-  <div id="screen-history" class="screen hidden">
-    <div class="stats-container">
-      <div class="stats-topbar">
-        <span class="stats-title">📜 Match History</span>
-        <div class="stats-topbar-right">
-          <button class="btn-link" onclick="showScreen('screen-home')">← Home</button>
-        </div>
-      </div>
-      <div id="history-list" class="history-list"></div>
-      <div id="history-footer" class="history-footer"></div>
-    </div>
-  </div>
-
-  <!-- Replay screen -->
-  <div id="screen-replay" class="screen hidden">
-    <div class="stats-container">
-      <div class="stats-topbar">
-        <span class="stats-title">🎬 Game Replay</span>
-        <div class="stats-topbar-right">
-          <button class="btn-link" onclick="showMatchHistory()">← Match History</button>
-        </div>
-      </div>
-      <div id="replay-header" class="replay-header"></div>
-      <div id="replay-controls" class="replay-controls">
-        <button id="replay-prev" class="btn btn-secondary btn-small">◀ Prev</button>
-        <span id="replay-progress" class="replay-progress"></span>
-        <button id="replay-next" class="btn btn-secondary btn-small">Next ▶</button>
-      </div>
-      <div id="replay-hands" class="gameover-hands"></div>
-    </div>
-  </div>
-
-  <!-- Role choice screen (shown when joining via invite link) -->
-  <div id="screen-role-choice" class="screen hidden">
-    <div class="home-container">
-      <h2>Join as Player or Spectator?</h2>
-      <p class="subtitle">Choose your role for this game</p>
-      <div class="role-choice-buttons">
-        <button id="btn-join-player" class="btn btn-primary">♠ Join as Player</button>
-        <button id="btn-join-spectator" class="btn btn-secondary">👁 Watch Game</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Lobby screen -->
-  <div id="screen-lobby" class="screen hidden">
-    <div class="lobby-container">
-      <h2>Game Lobby</h2>
-      <div class="room-code-display">
-        <span class="label">Room Code</span>
-        <span id="lobby-room-code" class="code">----</span>
-      </div>
-      <div class="lobby-invite-row">
-        <button id="btn-share-link" class="btn btn-secondary">Share Invite Link</button>
-        <button id="btn-send-tg" class="btn btn-secondary hidden"></button>
-      </div>
-      <div id="lobby-players" class="player-list"></div>
-      <p id="lobby-practice-notice" class="practice-notice hidden">🎮 Practice · unrated</p>
-      <button id="lobby-add-int-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot',level:'intermediate'})">🤖 Add Intermediate Bot</button>
-      <button id="lobby-add-adv-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot',level:'advanced'})">🧠 Add Advanced Bot</button>
-      <button id="lobby-add-soph-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot',level:'sophisticated'})">🎓 Add Sophisticated Bot</button>
-      <button id="lobby-add-god-bot" class="btn btn-ghost btn-small hidden" onclick="send({type:'addBot',level:'god'})">⚡ Add God Bot</button>
-      <p id="lobby-status" class="status-text">Waiting for players...</p>
-      <p id="lobby-countdown" class="status-text hidden"></p>
-      <button id="lobby-start-btn" class="btn btn-primary hidden" onclick="send({type:'startGame'})">Start Game</button>
-      <button id="lobby-join-as-player" class="btn btn-primary hidden" onclick="send({type:'joinAsPlayer'})">Join as Player</button>
-      <div class="inline-chat">
-        <div class="inline-chat-log" id="lobby-chat-log" role="log" aria-label="Room chat" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
-        <div class="chat-input-row">
-          <input type="text" class="chat-input-field" aria-label="Message to room" enterkeyhint="send" placeholder="Message..." maxlength="200" autocomplete="off">
-          <button class="chat-send-btn btn btn-secondary btn-small">Send</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Bidding screen -->
-  <div id="screen-bidding" class="screen hidden">
-    <div class="bidding-container">
-      <div class="bid-info">
-        <h2>Bidding <span id="bid-practice-badge" class="practice-badge hidden">Practice</span></h2>
-        <div id="bidding-players" class="player-status-bar"></div>
-        <p id="bid-status"></p>
-        <p id="bid-current"></p>
-        <div id="bid-history"></div>
-      </div>
-      <div id="bid-grid" class="bid-grid"></div>
-      <button id="btn-pass" class="btn btn-pass">Pass</button>
-      <div id="bidding-spectator-switcher" class="spectator-seat-switcher hidden">
-        <span class="switcher-label">Watching:</span>
-        <div class="switcher-buttons"></div>
-      </div>
-      <div id="bidding-fullboard" class="fullboard-hands hidden"></div>
-      <div class="hand-display" id="bidding-hand-section">
-        <h3><span id="bidding-hand-label">Your Hand</span> <span id="bidding-hcp" class="hcp-badge"></span></h3>
-        <div id="bidding-hand" class="card-hand"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Partner selection screen -->
-  <div id="screen-partner" class="screen hidden">
-    <div class="partner-container">
-      <h2 id="partner-title">Select Partner Card <span id="partner-practice-badge" class="practice-badge hidden">Practice</span></h2>
-      <div id="partner-players" class="player-status-bar"></div>
-      <div id="partner-bid-history"></div>
-      <p id="partner-status"></p>
-      <div id="partner-grid" class="partner-grid"></div>
-      <div id="partner-spectator-switcher" class="spectator-seat-switcher hidden">
-        <span class="switcher-label">Watching:</span>
-        <div class="switcher-buttons"></div>
-      </div>
-      <div id="partner-fullboard" class="fullboard-hands hidden"></div>
-      <div class="hand-display" id="partner-hand-section">
-        <h3><span id="partner-hand-label">Your Hand</span></h3>
-        <div id="partner-hand" class="card-hand"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Play screen -->
-  <div id="screen-play" class="screen hidden">
-    <div class="play-container">
-      <div class="game-info-bar">
-        <span id="play-bid-info"></span>
-        <span id="play-partner-info"></span>
-        <span id="play-trump-info"></span>
-        <span id="play-practice-badge" class="practice-badge hidden">Practice</span>
-      </div>
-
-      <div id="play-spectator-switcher" class="spectator-seat-switcher hidden">
-        <span class="switcher-label">Watching:</span>
-        <div class="switcher-buttons"></div>
-      </div>
-
-      <div class="table" id="play-table">
-        <!-- Opponent top (seat across) -->
-        <div class="seat seat-top">
-          <div class="seat-label" id="seat-top-label"></div>
-          <div class="chat-bubble" id="chat-bubble-top"></div>
-          <div class="seat-card" id="seat-top-card"></div>
-        </div>
-
-        <!-- Opponent left -->
-        <div class="seat seat-left">
-          <div class="seat-label" id="seat-left-label"></div>
-          <div class="chat-bubble" id="chat-bubble-left"></div>
-          <div class="seat-card" id="seat-left-card"></div>
-        </div>
-
-        <!-- Opponent right -->
-        <div class="seat seat-right">
-          <div class="seat-label" id="seat-right-label"></div>
-          <div class="chat-bubble" id="chat-bubble-right"></div>
-          <div class="seat-card" id="seat-right-card"></div>
-        </div>
-
-        <!-- Current player (bottom) -->
-        <div class="seat seat-bottom">
-          <div class="seat-label" id="seat-bottom-label"></div>
-          <div class="chat-bubble" id="chat-bubble-bottom"></div>
-          <div class="seat-card" id="seat-bottom-card"></div>
-        </div>
-
-        <!-- Trick area center -->
-        <div class="trick-area" id="trick-area"></div>
-
-        <!-- Last trick mini panel (bottom-right of table) -->
-        <div id="last-trick-panel" class="last-trick-panel hidden"></div>
-      </div>
-
-      <div id="play-fullboard" class="fullboard-hands hidden"></div>
-
-      <div class="hand-display" id="play-hand-section">
-        <div id="play-hand" class="card-hand"></div>
-      </div>
-      <div class="inline-chat">
-        <div class="inline-chat-log" id="play-chat-log" role="log" aria-label="Room chat" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
-        <div class="chat-input-row">
-          <input type="text" class="chat-input-field" aria-label="Message to room" enterkeyhint="send" placeholder="Message..." maxlength="200" autocomplete="off">
-          <button class="chat-send-btn btn btn-secondary btn-small">Send</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Game over screen -->
-  <div id="screen-gameover" class="screen hidden">
-    <div class="gameover-container" id="gameover-container">
-      <h2 id="gameover-title"></h2>
-      <p id="gameover-practice-notice" class="practice-notice hidden">🎮 Practice · unrated</p>
-      <div id="gameover-players" class="player-status-bar"></div>
-      <p id="gameover-detail"></p>
-      <div id="gameover-scores" class="scores"></div>
-      <div id="gameover-group-lb"></div>
-      <div id="gameover-play-time" class="play-time-section hidden"></div>
-      <div id="gameover-hands" class="gameover-hands"></div>
-      <div id="gameover-ready-list" class="gameover-ready-list"></div>
-      <p id="gameover-countdown" class="status-text hidden"></p>
-      <div class="gameover-actions">
-        <button id="btn-play-again" class="btn btn-primary">Play Again</button>
-        <button id="gameover-join-as-player" class="btn btn-primary hidden" onclick="send({type:'joinAsPlayer'})">Join as Player</button>
-      </div>
-      <div class="inline-chat">
-        <div class="inline-chat-log" id="gameover-chat-log" role="log" aria-label="Room chat" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
-        <div class="chat-input-row">
-          <input type="text" class="chat-input-field" aria-label="Message to room" enterkeyhint="send" placeholder="Message..." maxlength="200" autocomplete="off">
-          <button class="chat-send-btn btn btn-secondary btn-small">Send</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Spectator seat-select screen -->
-  <div id="screen-spectator" class="screen hidden">
-    <div class="home-container">
-      <h2>👁 Choose who to watch</h2>
-      <p class="subtitle">Pick a player or view the whole board.</p>
-      <div id="spectator-grid" class="spectator-grid"></div>
-    </div>
-  </div>
-
-  <!-- Stats screen -->
-  <div id="screen-stats" class="screen hidden">
-    <div class="stats-container">
-      <div class="stats-topbar">
-        <span class="stats-title">📊 Bridge Stats</span>
-        <div class="stats-topbar-right">
-          <select id="stats-group-select" class="stats-group-select"></select>
-          <button class="btn-link" onclick="showScreen('screen-home')">← Home</button>
-        </div>
-      </div>
-      <div class="stats-tabs">
-        <button class="stats-tab active" id="stats-tab-players" onclick="switchStatsTab('players')">Players</button>
-        <button class="stats-tab" id="stats-tab-pairs" onclick="switchStatsTab('pairs')">Pairs</button>
-        <button class="stats-tab" id="stats-tab-betting" onclick="switchStatsTab('betting')">🎲 Betting</button>
-      </div>
-      <div class="stats-filter-bar">
-        <span class="stats-filter-label">Min games:</span>
-        <div class="min-games-filter">
-          <button class="min-games-btn active" data-value="3" onclick="setMinGames(3)">3</button>
-          <button class="min-games-btn" data-value="10" onclick="setMinGames(10)">10</button>
-          <button class="min-games-btn" data-value="20" onclick="setMinGames(20)">20</button>
-        </div>
-      </div>
-      <div id="stats-content"></div>
-      <p class="stats-footer">Stats tracked from first deployment of this feature · Historical games not included</p>
-    </div>
-  </div>
-
-  <script src="/hand.js"></script>
-  <script src="/app.js"></script>
+  <script>
+    try {
+      const name = localStorage.getItem('playerName');
+      if (name) {
+        const el = document.getElementById('hub-greeting');
+        el.textContent = `Welcome back, ${name} 👋`;
+        el.classList.remove('hidden');
+      }
+    } catch { /* storage blocked */ }
+  </script>
 </body>
 </html>

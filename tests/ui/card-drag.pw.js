@@ -16,7 +16,7 @@ async function initialize(page) {
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
     return route.continue();
   });
-  await page.goto(origin);
+  await page.goto(`${origin}/bridge/`);
 }
 test.beforeEach(async ({ page }) => initialize(page));
 
