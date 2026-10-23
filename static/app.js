@@ -2888,6 +2888,14 @@ function setRoomCode(code) {
   history.replaceState(null, '', buildHashWithId(code));
 }
 
+// The player/spectator choice belongs to one room. It is persisted so reconnects
+// keep it, so it must be replaced whenever the player creates or leaves a room.
+function setJoinRole(role) {
+  joinAs = role;
+  if (role) sessionStorage.setItem('joinRole', role);
+  else sessionStorage.removeItem('joinRole');
+}
+
 function buildHashWithId(room) {
   return '#' + room + ':' + playerId;
 }
@@ -2916,6 +2924,7 @@ function leaveGame() {
   if (widget) widget.classList.add('hidden');
   document.body.classList.remove('has-betting-widget');
   sessionStorage.removeItem('roomCode');
+  setJoinRole(null);
   history.replaceState(null, '', location.pathname + location.search);
   $('overlay-reconnect').classList.add('hidden');
   $('input-room').value = '';
@@ -2948,6 +2957,7 @@ $('btn-create').addEventListener('click', async () => {
     const res = await fetch('/api/create', { method: 'POST' });
     const data = await res.json();
     setRoomCode(data.roomCode);
+    setJoinRole('player');
     showScreen('screen-lobby');
     $('lobby-room-code').textContent = roomCode;
     connect();
@@ -2973,6 +2983,7 @@ $('btn-create-group').addEventListener('click', async () => {
     });
     const data = await res.json();
     setRoomCode(data.roomCode);
+    setJoinRole('player');
     showScreen('screen-lobby');
     $('lobby-room-code').textContent = roomCode;
     connect();
@@ -3089,16 +3100,14 @@ function pingPlayer(seat) {
 
 // Add role choice button handlers
 $('btn-join-player').addEventListener('click', () => {
-  joinAs = 'player';
-  sessionStorage.setItem('joinRole', 'player');  // Persist choice for reconnects
+  setJoinRole('player');
   showScreen('screen-lobby');
   $('lobby-room-code').textContent = roomCode;
   connect();
 });
 
 $('btn-join-spectator').addEventListener('click', () => {
-  joinAs = 'spectator';
-  sessionStorage.setItem('joinRole', 'spectator');  // Persist choice for reconnects
+  setJoinRole('spectator');
   showScreen('screen-lobby');
   $('lobby-room-code').textContent = roomCode;
   connect();
