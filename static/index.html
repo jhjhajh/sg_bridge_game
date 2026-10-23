@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0f1117">
   <title>Fun Central</title>
   <script>
     // Old Bridge invite links were /#ROOM — send them to the Bridge app.
@@ -13,78 +12,56 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/fun.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  <!-- Bridge's stylesheet is the Fun Central design system. -->
+  <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/hub.css">
 </head>
 <body>
   <main class="hub">
     <header class="hub-header">
-      <div class="hub-logo" aria-hidden="true">🎪</div>
-      <h1>Fun Central</h1>
-      <p class="hub-tagline">Card games to play with your group — pick one and share the room code.</p>
+      <h1>♠♥ Fun Central ♦♣</h1>
+      <p class="subtitle">Card games for your group</p>
       <p id="hub-greeting" class="hub-greeting hidden"></p>
     </header>
 
+    <div id="leaderboard-section" class="hub-leaderboard"></div>
+
     <section class="hub-grid" aria-label="Games">
-      <a class="game-tile tile-bridge" href="/bridge/">
-        <div class="tile-art" aria-hidden="true">
-          <span class="art-suit s1">♠</span><span class="art-suit s2 red">♥</span><span class="art-suit s3 red">♦</span><span class="art-suit s4">♣</span>
+      <a class="game-tile" href="/bridge/">
+        <div class="tile-felt" aria-hidden="true">
+          <span class="tile-card black">A<i>♠</i></span><span class="tile-card red">K<i>♥</i></span><span class="tile-card red">Q<i>♦</i></span><span class="tile-card black">J<i>♣</i></span>
         </div>
         <div class="tile-body">
-          <div class="tile-title-row">
-            <h2>Floating Bridge</h2>
-            <span class="tile-badge">Rated</span>
-          </div>
+          <h2>Floating Bridge</h2>
           <p>The Singapore classic. Bid, call a secret partner, and win your tricks.</p>
-          <div class="tile-meta">
-            <span class="chip">👥 4 players</span>
-            <span class="chip">⚔️ Competitive</span>
-            <span class="chip">🤖 Bots</span>
-          </div>
-          <span class="tile-cta">Play Bridge <span aria-hidden="true">→</span></span>
+          <div class="tile-meta"><span>4 players</span><span>Competitive</span><span>Bots</span></div>
+          <span class="btn btn-primary tile-btn">Play Bridge</span>
         </div>
       </a>
 
-      <a class="game-tile tile-regicide" href="/regicide/">
-        <div class="tile-art" aria-hidden="true">
-          <span class="art-crown">👑</span>
-          <span class="art-royal r1">J</span><span class="art-royal r2 red">Q</span><span class="art-royal r3">K</span>
+      <a class="game-tile" href="/regicide/">
+        <div class="tile-felt" aria-hidden="true">
+          <span class="tile-card black">J<i>♣</i></span><span class="tile-card red">Q<i>♥</i></span><span class="tile-card black">K<i>♠</i></span>
         </div>
         <div class="tile-body">
-          <div class="tile-title-row">
-            <h2>Regicide</h2>
-            <span class="tile-badge tile-badge-new">New</span>
-          </div>
+          <h2>Regicide</h2>
           <p>Team up to storm the castle and defeat all 12 corrupted royals.</p>
-          <div class="tile-meta">
-            <span class="chip">👥 1–4 players</span>
-            <span class="chip">🤝 Co-op</span>
-            <span class="chip">🧩 Solo mode</span>
-          </div>
-          <span class="tile-cta">Play Regicide <span aria-hidden="true">→</span></span>
+          <div class="tile-meta"><span>1–4 players</span><span>Co-op</span><span>Solo mode</span></div>
+          <span class="btn btn-primary tile-btn">Play Regicide</span>
         </div>
       </a>
-
-      <div class="game-tile tile-soon" aria-disabled="true">
-        <div class="tile-art" aria-hidden="true"><span class="art-soon">＋</span></div>
-        <div class="tile-body">
-          <div class="tile-title-row"><h2>More games</h2></div>
-          <p>New mini apps are on the way. Got one your group loves? Tell us in the chat.</p>
-          <div class="tile-meta"><span class="chip">🛠️ Coming soon</span></div>
-        </div>
-      </div>
     </section>
-
-    <footer class="hub-footer">Fun Central · Made for friends who like cards</footer>
   </main>
 
+  <script src="/leaderboard.js"></script>
   <script>
+    FunLeaderboard.mount(document.getElementById('leaderboard-section'));
     try {
       const name = localStorage.getItem('playerName');
       if (name) {
         const el = document.getElementById('hub-greeting');
-        el.textContent = `Welcome back, ${name} 👋`;
+        el.textContent = `Welcome back, ${name}`;
         el.classList.remove('hidden');
       }
     } catch { /* storage blocked */ }

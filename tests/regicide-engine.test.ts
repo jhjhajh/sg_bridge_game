@@ -115,6 +115,45 @@ describe('suit powers', () => {
   });
 });
 
+describe('rulebook worked examples', () => {
+  it('3♦ 3♠ 3♣ together: draw 9, shield 9, deal 18', () => {
+    const tavern = Array.from({ length: 12 }, (_, i) => `${(i % 9) + 2}H`);
+    const game = setup(2, { enemy: 'QH', maxHand: 20, tavern, hands: [['3D', '3S', '3C', 'KS'], ['2H']] });
+    playCards(game, 0, ['3D', '3S', '3C']);
+    expect(game.enemyDamage).toBe(18);
+    expect(shieldValue(game)).toBe(9);
+    expect(game.hands[0].length + game.hands[1].length).toBe(2 + 9);
+  });
+
+  it('8♦ with the Clubs companion: attack 9, draw 9, deal 18', () => {
+    const tavern = Array.from({ length: 12 }, (_, i) => `${(i % 9) + 2}H`);
+    const game = setup(2, { enemy: 'QS', maxHand: 20, tavern, hands: [['8D', 'AC', 'KS'], ['2H']] });
+    playCards(game, 0, ['8D', 'AC']);
+    expect(game.enemyDamage).toBe(18);
+    expect(game.hands[0].length + game.hands[1].length).toBe(2 + 9);
+  });
+
+  it('a companion with a card of the same suit applies that power once', () => {
+    const game = setup(2, { enemy: 'QH', hands: [['AS', '9S', 'KD'], ['2H']] });
+    playCards(game, 0, ['AS', '9S']);
+    expect(shieldValue(game)).toBe(10); // not 20
+  });
+
+  it('two Jacks together exceed 10, so royals cannot form sets', () => {
+    expect(validatePlay(['JC', 'JD'])).toMatch(/10 or less/);
+    expect(validatePlay(['AH', 'KS'])).toBeNull();
+  });
+
+  it('clubs played before a Jester against a Clubs enemy are not doubled afterwards', () => {
+    const game = setup(3, { enemy: 'JC', hands: [['5C', 'KS'], ['X1', 'KH'], ['2D', 'QD']] });
+    playCards(game, 0, ['5C']);
+    expect(game.enemyDamage).toBe(5);
+    discardCards(game, 0, ['KS']);
+    playCards(game, 1, ['X1']);
+    expect(game.enemyDamage).toBe(5);
+  });
+});
+
 describe('defeating enemies', () => {
   it('exact damage puts the enemy on top of the tavern; same player goes again', () => {
     const game = setup(2, { enemy: 'JC', enemyDamage: 14, hands: [['6H', '2S'], ['3H']] });
@@ -149,6 +188,45 @@ describe('yielding and losing', () => {
     discardCards(game, 0, ['KS']);
     expect(canYield(game)).toBe(false);
     expect(yieldTurn(game, 1)).toMatch(/can't yield/);
+  });
+
+  it('checks every other player\'s last turn, even after a Jester reorders play', () => {
+    // 3 players: seat 1 yields, seat 2 plays a Jester and hands the turn back to seat 1,
+    // who then yields again; seat 0's last turn was a play, so seat 2 may still yield later.
+    const game = setup(3, { enemy: 'JC', currentSeat: 1, hands: [['KS'], ['KH', 'QH', 'X1'], ['X2', 'KD', 'QD']] });
+    expect(yieldTurn(game, 1)).toBeNull();
+    discardCards(game, 1, ['KH']);
+    expect(playCards(game, 2, ['X2'])).toBeNull();
+    chooseNextPlayer(game, 2, 1);
+    // Others' last turns: seat 0 never played (not a yield), seat 2 played the Jester.
+    expect(canYield(game)).toBe(true);
+    expect(yieldTurn(game, 1)).toBeNull();
+    discardCards(game, 1, ['QH']);
+    // Seat 2: seat 0 hasn't yielded, so seat 2 may yield.
+    expect(canYield(game)).toBe(true);
+    // Make seat 0 yield too, then seat 1 (both others yielded) can't.
+    game.lastTurnYielded = [true, false, true];
+    game.currentSeat = 1;
+    expect(canYield(game)).toBe(false);
+  });
+
+  it('never allows yielding in solo; an empty hand with no flips left loses', () => {
+    const game = setup(1, { enemy: 'JC', hands: [['KS', '2C']], soloJestersLeft: 0 });
+    expect(canYield(game)).toBe(false);
+    expect(yieldTurn(game, 0)).toMatch(/solo/);
+    const empty = setup(1, { enemy: 'JC', enemyDamage: 0, hands: [['10S']], soloJestersLeft: 0, tavern: [] });
+    playCards(empty, 0, ['10S']); // shield 10 → no damage, next turn starts with an empty hand
+    expect(empty.phase).toBe('lost');
+    expect(empty.loseReason).toMatch(/no cards/);
+  });
+
+  it('solo with an empty hand and a flip left must flip, then continues', () => {
+    const game = setup(1, { enemy: 'JC', hands: [['10S']], soloJestersLeft: 1, tavern: ['9H', '8D'] });
+    playCards(game, 0, ['10S']);
+    expect(game.phase).toBe('play');
+    expect(game.hands[0]).toEqual([]);
+    expect(flipSoloJester(game, 0)).toBeNull();
+    expect(game.hands[0]).toEqual(['9H', '8D']);
   });
 
   it('loses when the hand cannot cover the damage', () => {

@@ -1541,6 +1541,16 @@ body.has-spectators .screen {
   color: #fff;
 }
 
+/* Bridge | Regicide switch on the shared leaderboard card (static/leaderboard.js). */
+.lb-tabs { display: flex; justify-content: center; gap: 4px; margin: -0.25rem 0 0.6rem; }
+.lb-tab {
+  padding: 0.2rem 0.7rem; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-dim); font: 600 0.72rem var(--font);
+}
+.lb-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lb-empty { text-align: center; color: var(--text-dimmer); font-size: 0.8rem; padding: 0.4rem 0; }
+
 .lb-divider {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   margin: 0.4rem 0;

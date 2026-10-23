@@ -12,17 +12,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |-----|-------|---------|
 | `/` | `static/index.html`, `static/hub.css` | — (hub with a tile per app) |
 | `/bridge/` | `static/bridge/index.html` + root `static/app.js`, `hand.js`, `style.css`, `view.*` | `GameRoom` DO (`GAME_ROOM`), `/api/create`, `/api/ws`, … |
-| `/regicide/` | `static/regicide/{index.html,regicide.js,regicide.css}` | `RegicideRoom` DO (`REGICIDE_ROOM`), `/api/regicide/create`, `/api/regicide/ws` |
+| `/regicide/` | `static/regicide/{index.html,regicide.js,regicide.css}` | `RegicideRoom` DO (`REGICIDE_ROOM`), `/api/regicide/create`, `/api/regicide/ws`, `/api/regicide/leaderboard` |
 
-- `static/fun.css` is the shared theme (tokens, buttons, inputs, toasts) for the hub and every app except Bridge, which keeps its own `style.css`.
+- **Bridge's `static/style.css` is the shared design system.** The hub and every app load `/style.css` and reuse its components (`.home-container`, `.lobby-container`, `.table` felt, `.seat-label`, `.game-info-bar`, `.card-hand.hand-fan`, `.card-mini`, `.btn*`); each app only adds its own small stylesheet on top.
+- `static/fc-auth.js` — shared Telegram sign-in (same `localStorage.authToken` as Bridge, so one login works everywhere; dev login on localhost).
+- `static/leaderboard.js` — the shared 🏆 Leaderboard card with a **Bridge | Regicide** switch, shown on the hub, Bridge home and Regicide home. The two boards stay separate.
 - Old Bridge invite links (`/#ROOM`) are redirected by the hub to `/bridge/#ROOM`. Bridge invite messages now use `/bridge/#ROOM`.
 - `localStorage.playerName` is shared across apps so a player's name carries over.
 - **Adding an app:** put its page under `static/<app>/`, give it its own Durable Object class (new `[[migrations]]` tag in `wrangler.toml`, binding in `Env`, export from `src/index.ts`, and add it to `tests/ui/live-worker.cjs`), namespace its routes under `/api/<app>/`, and add a tile to `static/index.html`.
 
 ### Regicide (`src/regicide/`)
 - **`engine.ts`** — pure rules engine (no Cloudflare deps), unit-tested in `tests/regicide-engine.test.ts`. Card codes are rank+suit letter (`7H`, `10S`, `KC`), Jesters `X1`/`X2`; pile index 0 = top. Actions (`playCards`, `yieldTurn`, `discardCards`, `chooseNextPlayer`, `flipSoloJester`) mutate the game and return an error string or `null`.
-- **`room.ts`** — `RegicideRoom` DO: lobby (≤4 seats, first joiner hosts), start, relays actions to the engine, and broadcasts a per-player view (own hand only). Purges storage 30 min after the last socket disconnects. No D1 logging or ratings (co-op).
-- Rule calls worth knowing: spades played before a Jester start shielding once it's played (clubs don't retro-double); solo players may yield; diamonds draw round-robin from the current player and skip full hands; an exact kill puts the royal on top of the tavern deck.
+- **`room.ts`** — `RegicideRoom` DO: lobby (≤4 seats, first joiner hosts), start, relays actions to the engine, and broadcasts a per-player view (own hand only). Shuffles use a seeded PRNG kept in room state. Purges storage 30 min after the last socket disconnects.
+- **Identity:** `/api/regicide/ws` turns a valid JWT into `playerId=tg_<id>` (+ the profile name); anything else becomes `guest_…`, which can watch but not take a seat.
+- **Rating (`rating.ts`, `db.ts`, migration `0011_regicide.sql`):** separate from Bridge ELO. Score = royals defeated ÷ 12 (win = 1) vs an Elo expectation against a fixed castle rating of 1200; K = 32 for a player's first 30 games, then 16 (as in `elo.ts`). Rated once per game when won/lost, or when ended early after at least one royal fell. Tables: `regicide_ratings`, `regicide_games`, `regicide_rating_history`. `GET /api/regicide/leaderboard` returns Bridge's `{ top, me }` shape.
+- **Dev/test only (gated on `ALLOW_DEV_LOGIN=1`):** `POST /api/regicide/create { seed }` pins the shuffle; `POST /api/regicide/debug/patch?room=` merges fields into the live game to set up exact scenarios (used by `tests/ui/regicide-live.pw.js`).
+- Rule calls worth knowing (from the official rulebook PDF; solo-yield from the official BGA adaptation): spades played before a Jester start shielding once it's played (clubs don't retro-double); **no yielding in solo**; the yield ban checks every other player's *last turn* (not a streak), so Jester reordering is handled; an empty hand is fine until you must cover damage or act; solo Jester flips are allowed at the start of Step 1 or Step 4; diamonds draw round-robin from the current player and skip full hands; an exact kill puts the royal on top of the tavern deck.
 
 ## Commands
 

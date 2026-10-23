@@ -46,7 +46,8 @@ export interface RegicideGame {
   currentSeat: number;
   phase: Phase;
   pendingDamage: number;
-  yieldsInRow: number;
+  /** Whether each seat's most recent turn was a yield (the yield rule looks at every other player's last turn). */
+  lastTurnYielded: boolean[];
   soloJestersLeft: number;
   defeated: string[];
   log: LogEntry[];
@@ -125,7 +126,7 @@ export function newGame(numPlayers: number, rng: Rng = Math.random, startSeat?: 
     currentSeat: startSeat ?? Math.floor(rng() * numPlayers),
     phase: 'play',
     pendingDamage: 0,
-    yieldsInRow: 0,
+    lastTurnYielded: Array(numPlayers).fill(false),
     soloJestersLeft: numPlayers === 1 ? 2 : 0,
     defeated: [],
     log: [],
@@ -165,9 +166,14 @@ export function currentAttack(game: RegicideGame): number {
   return stats ? Math.max(0, stats.attack - shieldValue(game)) : 0;
 }
 
-export function canYield(game: RegicideGame): boolean {
-  // Solo: the "everyone else yielded" restriction has no one to apply to.
-  return game.numPlayers === 1 || game.yieldsInRow < game.numPlayers - 1;
+/**
+ * "A player may not yield if every other player has yielded on their last turn."
+ * Solo players may never yield (as in the official Board Game Arena adaptation).
+ */
+export function canYield(game: RegicideGame, seat = game.currentSeat): boolean {
+  if (game.numPlayers === 1) return false;
+  const yielded = game.lastTurnYielded ?? [];
+  return !game.hands.every((_, s) => s === seat || yielded[s]);
 }
 
 /** Returns an error message, or null when the cards form a legal attack. */
@@ -184,6 +190,11 @@ export function validatePlay(cards: string[]): string | null {
   if (new Set(ranks).size !== 1) return 'Combos must be cards of the same rank';
   if (handValue(cards) > 10) return 'Combos must total 10 or less';
   return null;
+}
+
+function markTurn(game: RegicideGame, seat: number, yielded: boolean): void {
+  game.lastTurnYielded ??= Array(game.numPlayers).fill(false);
+  game.lastTurnYielded[seat] = yielded;
 }
 
 function removeFromHand(hand: string[], cards: string[]): boolean {
@@ -276,7 +287,7 @@ export function playCards(game: RegicideGame, seat: number, cards: string[], rng
   const err = guardTurn(game, seat, 'play') ?? validatePlay(cards);
   if (err) return err;
   if (!removeFromHand(game.hands[seat], cards)) return "You don't hold those cards";
-  game.yieldsInRow = 0;
+  markTurn(game, seat, false);
 
   if (isJester(cards[0])) {
     game.jesterActive = true;
@@ -325,8 +336,9 @@ export function playCards(game: RegicideGame, seat: number, cards: string[], rng
 export function yieldTurn(game: RegicideGame, seat: number): string | null {
   const err = guardTurn(game, seat, 'play');
   if (err) return err;
-  if (!canYield(game)) return "You can't yield — everyone else just yielded";
-  game.yieldsInRow++;
+  if (game.numPlayers === 1) return "You can't yield in solo play";
+  if (!canYield(game)) return "You can't yield — everyone else yielded on their last turn";
+  markTurn(game, seat, true);
   addLog(game, { t: 'yield', seat });
   sufferDamage(game, seat);
   return null;

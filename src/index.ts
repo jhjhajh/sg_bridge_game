@@ -6,6 +6,7 @@ import { getPlayerStats, getPairStats } from './stats-db';
 import { placeBet, getUserBet, getBettingLeaderboard } from './betting-db';
 import { listUserGames, getGameReplay } from './history';
 import { normalizePlayerName, telegramDisplayName, UNNAMED_TELEGRAM_USER } from './player-name';
+import { getRegicideLeaderboard } from './regicide/db';
 
 export { GameRoom } from './game-room';
 export { RegicideRoom } from './regicide/room';
@@ -144,10 +145,13 @@ export default {
 
     // --- Regicide (co-op, 1–4 players) ---
     if (url.pathname === '/api/regicide/create' && request.method === 'POST') {
+      // A fixed shuffle seed is a dev/test-only convenience.
+      const body = await request.json<{ seed?: unknown }>().catch(() => ({} as { seed?: unknown }));
+      const seed = env.ALLOW_DEV_LOGIN === '1' && Number.isInteger(body.seed) ? body.seed : undefined;
       for (let attempt = 0; attempt < 5; attempt++) {
         const roomCode = generateRoomCode();
         const res = await env.REGICIDE_ROOM.getByName(roomCode).fetch(
-          new Request('https://internal/create', { method: 'POST', body: JSON.stringify({ roomCode }) }),
+          new Request('https://internal/create', { method: 'POST', body: JSON.stringify({ roomCode, seed }) }),
         );
         if (res.ok) return Response.json({ roomCode });
       }
@@ -157,7 +161,35 @@ export default {
     if (url.pathname === '/api/regicide/ws') {
       const roomCode = url.searchParams.get('room')?.toUpperCase();
       if (!roomCode || !/^[A-Z0-9]{4}$/.test(roomCode)) return new Response('Missing room code', { status: 400 });
-      return env.REGICIDE_ROOM.getByName(roomCode).fetch(request);
+      // Only a verified JWT yields a tg_ id (which the room requires to take a seat and be rated).
+      // Anyone else connects as a guest and can only watch.
+      const forward = new URL(request.url);
+      const token = forward.searchParams.get('token');
+      const claims = token ? await verifyJwt(token, env.JWT_SECRET) : null;
+      forward.searchParams.delete('token');
+      forward.searchParams.delete('name');
+      if (claims) {
+        forward.searchParams.set('playerId', `tg_${claims.sub}`);
+        const user = await getUser(env.DB, Number(claims.sub)).catch(() => null);
+        const name = normalizePlayerName(user?.display_name) || normalizePlayerName(claims.name);
+        if (name) forward.searchParams.set('name', name);
+      } else {
+        const guest = (forward.searchParams.get('playerId') ?? '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 64);
+        forward.searchParams.set('playerId', `guest_${guest || crypto.randomUUID()}`);
+      }
+      return env.REGICIDE_ROOM.getByName(roomCode).fetch(new Request(forward.toString(), request));
+    }
+
+    if (url.pathname === '/api/regicide/leaderboard' && request.method === 'GET') {
+      const claims = await getAuthClaims(request, env.JWT_SECRET).catch(() => null);
+      return Response.json(await getRegicideLeaderboard(env.DB, claims ? Number(claims.sub) : undefined));
+    }
+
+    // DEV ONLY: patch a live Regicide game to set up an exact scenario in tests.
+    if (url.pathname === '/api/regicide/debug/patch' && request.method === 'POST' && env.ALLOW_DEV_LOGIN === '1') {
+      const room = url.searchParams.get('room')?.toUpperCase();
+      if (!room) return new Response('Missing room', { status: 400 });
+      return env.REGICIDE_ROOM.getByName(room).fetch(new Request('https://internal/debug/patch', { method: 'POST', body: await request.text() }));
     }
 
     if (url.pathname === '/api/ws') {

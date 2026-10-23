@@ -4,8 +4,9 @@ import { normalizePlayerName } from '../player-name';
 import {
   newGame, playCards, yieldTurn, discardCards, chooseNextPlayer, flipSoloJester,
   enemyStats, shieldValue, currentAttack, canYield, cardSuit, cardRank, soloTier,
-  type RegicideGame,
+  type RegicideGame, type Rng,
 } from './engine';
+import { recordRegicideGame, type RegicideOutcome } from './db';
 
 export const MAX_PLAYERS = 4;
 const INACTIVITY_MS = 30 * 60 * 1000;
@@ -15,7 +16,11 @@ interface RoomPlayer {
   id: string;
   name: string;
   connected: boolean;
+  /** Verified Telegram id (the Worker only issues `tg_<id>` player ids after checking the JWT). */
+  telegramId: number | null;
 }
+
+interface SeatRating { seat: number; name: string; before: number; after: number; delta: number }
 
 interface RoomState {
   roomCode: string;
@@ -23,10 +28,34 @@ interface RoomState {
   hostId: string | null;
   game: RegicideGame | null;
   gameNo: number;
+  gameId: string | null;
+  /** Seeded PRNG state, so shuffles are reproducible from a seed (dev/test can pin it at create). */
+  rngState: number;
+  /** Rating result of the most recent rated game. */
+  lastRating: { gameId: string; outcome: RegicideOutcome; changes: SeatRating[] } | null;
+  ratedGameId: string | null;
 }
 
 interface Session {
   playerId: string;
+  /** Display name from the verified JWT, if any. */
+  name: string | null;
+}
+
+/** mulberry32: small, fast, good enough for card shuffles. Advances state.rngState in place. */
+function roomRng(state: RoomState): Rng {
+  return () => {
+    state.rngState = (state.rngState + 0x6d2b79f5) | 0;
+    let t = state.rngState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function telegramIdOf(playerId: string): number | null {
+  const id = /^tg_(\d+)$/.exec(playerId)?.[1];
+  return id ? Number(id) : null;
 }
 
 export type RegicideClientMessage =
@@ -58,16 +87,31 @@ export class RegicideRoom extends DurableObject {
 
     if (url.pathname === '/create' && request.method === 'POST') {
       if (await this.getState()) return Response.json({ ok: false }, { status: 409 });
-      const { roomCode } = (await request.json()) as { roomCode: string };
-      const state: RoomState = { roomCode, players: [], hostId: null, game: null, gameNo: 0 };
+      const { roomCode, seed } = (await request.json()) as { roomCode: string; seed?: number };
+      const rngState = Number.isInteger(seed) ? Number(seed) : crypto.getRandomValues(new Uint32Array(1))[0] | 0;
+      const state: RoomState = {
+        roomCode, players: [], hostId: null, game: null, gameNo: 0, gameId: null, rngState, lastRating: null, ratedGameId: null,
+      };
       await this.ctx.storage.put('state', state);
       await this.ctx.storage.setAlarm(Date.now() + INACTIVITY_MS);
+      return Response.json({ ok: true });
+    }
+
+    // Dev/test only (the Worker gates this route on ALLOW_DEV_LOGIN): patch the live game to set up a scenario.
+    if (url.pathname === '/debug/patch' && request.method === 'POST') {
+      if ((this.env as Env).ALLOW_DEV_LOGIN !== '1') return new Response('Not found', { status: 404 });
+      const state = await this.getState();
+      if (!state?.game) return Response.json({ ok: false, error: 'No game in progress' }, { status: 409 });
+      Object.assign(state.game, (await request.json()) as Partial<RegicideGame>);
+      await this.save(state);
+      this.broadcast(state);
       return Response.json({ ok: true });
     }
 
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Not found', { status: 404 });
     const playerId = url.searchParams.get('playerId');
     if (!playerId) return new Response('Missing playerId', { status: 400 });
+    const verifiedName = normalizePlayerName(url.searchParams.get('name')) || null;
 
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
@@ -85,7 +129,7 @@ export class RegicideRoom extends DurableObject {
         this.sessions.delete(ws);
       }
     }
-    const session: Session = { playerId };
+    const session: Session = { playerId, name: verifiedName };
     server.serializeAttachment(session);
     this.sessions.set(server, session);
     await this.ctx.storage.deleteAlarm();
@@ -109,11 +153,12 @@ export class RegicideRoom extends DurableObject {
     const state = await this.getState();
     if (!state) return;
 
-    const error = this.handle(state, session.playerId, msg);
+    const error = this.handle(state, session, msg);
     if (error) {
       ws.send(JSON.stringify({ type: 'error', message: error }));
       return;
     }
+    await this.rateFinishedGame(state);
     await this.save(state);
     this.broadcast(state);
   }
@@ -148,14 +193,17 @@ export class RegicideRoom extends DurableObject {
   }
 
   /** Applies one client message to the room. Returns an error string for the sender, or null. */
-  private handle(state: RoomState, playerId: string, msg: RegicideClientMessage): string | null {
+  private handle(state: RoomState, session: Session, msg: RegicideClientMessage): string | null {
+    const playerId = session.playerId;
     const seat = state.players.findIndex((p) => p.id === playerId);
     const isHost = state.hostId === playerId;
     const game = state.game;
 
     switch (msg.type) {
       case 'join': {
-        const name = normalizePlayerName(msg.name);
+        const telegramId = telegramIdOf(playerId);
+        if (telegramId === null) return 'Sign in with Telegram to play';
+        const name = session.name ?? normalizePlayerName(msg.name);
         if (seat >= 0) {
           if (name) state.players[seat].name = name;
           state.players[seat].connected = true;
@@ -163,7 +211,7 @@ export class RegicideRoom extends DurableObject {
         }
         if (game) return 'This game has already started — you can watch until it ends';
         if (state.players.length >= MAX_PLAYERS) return 'This room is full (4 players)';
-        state.players.push({ id: playerId, name: name || `Player ${state.players.length + 1}`, connected: true });
+        state.players.push({ id: playerId, name: name || `Player ${state.players.length + 1}`, connected: true, telegramId });
         state.hostId ??= playerId;
         return null;
       }
@@ -174,7 +222,7 @@ export class RegicideRoom extends DurableObject {
           return null;
         }
         // Leaving a finished game also returns everyone to the lobby with the new roster.
-        state.game = null;
+        this.endGame(state);
         this.removePlayer(state, seat);
         return null;
       }
@@ -190,8 +238,9 @@ export class RegicideRoom extends DurableObject {
         if (!isHost) return 'Only the host can start the game';
         if (game) return 'The game has already started';
         if (state.players.length < 1) return 'Need at least one player';
-        state.game = newGame(state.players.length);
+        state.game = newGame(state.players.length, roomRng(state));
         state.gameNo++;
+        state.gameId = `${state.roomCode}-${Date.now().toString(36)}-${state.gameNo}`;
         return null;
       }
       case 'backToLobby': {
@@ -199,7 +248,7 @@ export class RegicideRoom extends DurableObject {
         const over = game.phase === 'won' || game.phase === 'lost';
         if (!over && !isHost) return 'Only the host can end the game early';
         if (seat < 0) return null;
-        state.game = null;
+        this.endGame(state);
         return null;
       }
     }
@@ -207,7 +256,7 @@ export class RegicideRoom extends DurableObject {
     if (!game) return 'The game has not started';
     if (seat < 0) return "You're watching this game";
     switch (msg.type) {
-      case 'play': return playCards(game, seat, asCards(msg.cards));
+      case 'play': return playCards(game, seat, asCards(msg.cards), roomRng(state));
       case 'yield': return yieldTurn(game, seat);
       case 'discard': return discardCards(game, seat, asCards(msg.cards));
       case 'chooseNext': return chooseNextPlayer(game, seat, Number(msg.seat));
@@ -216,13 +265,64 @@ export class RegicideRoom extends DurableObject {
     return 'Unknown action';
   }
 
+  /** Back to the lobby. A game ended early still counts once a royal has fallen (no dodging a bad run). */
+  private endGame(state: RoomState): void {
+    const game = state.game;
+    if (game && game.phase !== 'won' && game.phase !== 'lost' && game.defeated.length > 0) {
+      this.pendingRating = this.ratingInput(state, 'abandoned');
+    }
+    state.game = null;
+  }
+
+  private pendingRating: { outcome: RegicideOutcome; gameId: string; numPlayers: number; defeated: number; jestersUsed: number; seats: RoomPlayer[] } | null = null;
+
+  private ratingInput(state: RoomState, outcome: RegicideOutcome) {
+    const game = state.game!;
+    return {
+      outcome, gameId: state.gameId!, numPlayers: game.numPlayers, defeated: game.defeated.length,
+      jestersUsed: game.numPlayers === 1 ? 2 - game.soloJestersLeft : 0, seats: [...state.players],
+    };
+  }
+
+  /** Writes ratings once per game, when it is won/lost (or was abandoned mid-run). */
+  private async rateFinishedGame(state: RoomState): Promise<void> {
+    const game = state.game;
+    if (!this.pendingRating && game && (game.phase === 'won' || game.phase === 'lost') && state.gameId) {
+      this.pendingRating = this.ratingInput(state, game.phase);
+    }
+    const pending = this.pendingRating;
+    this.pendingRating = null;
+    if (!pending || state.ratedGameId === pending.gameId) return;
+    state.ratedGameId = pending.gameId;
+    const db = (this.env as Env).DB;
+    const rated = pending.seats.filter((p) => p.telegramId !== null);
+    try {
+      const changes = await recordRegicideGame(db, {
+        gameId: pending.gameId, roomCode: state.roomCode, numPlayers: pending.numPlayers, defeated: pending.defeated,
+        outcome: pending.outcome, jestersUsed: pending.jestersUsed, telegramIds: rated.map((p) => p.telegramId!),
+      });
+      state.lastRating = {
+        gameId: pending.gameId,
+        outcome: pending.outcome,
+        changes: changes.map((c) => {
+          const seat = pending.seats.findIndex((p) => p.telegramId === c.telegramId);
+          return { seat, name: pending.seats[seat]?.name ?? '', before: c.before, after: c.after, delta: c.delta };
+        }),
+      };
+    } catch (err) {
+      console.error('Regicide rating failed', err);
+    }
+  }
+
   private removePlayer(state: RoomState, seat: number): void {
     const [removed] = state.players.splice(seat, 1);
     if (state.hostId === removed.id) state.hostId = state.players[0]?.id ?? null;
   }
 
   private async getState(): Promise<RoomState | null> {
-    return (await this.ctx.storage.get<RoomState>('state')) ?? null;
+    const state = (await this.ctx.storage.get<RoomState>('state')) ?? null;
+    if (state) state.rngState ??= crypto.getRandomValues(new Uint32Array(1))[0] | 0;
+    return state;
   }
 
   private async save(state: RoomState): Promise<void> {
@@ -252,6 +352,8 @@ export function buildView(state: RoomState, playerId: string) {
     gameNo: state.gameNo,
     you: { seat, isHost: state.hostId === playerId, id: playerId },
     players: state.players.map((p) => ({ id: p.id, name: p.name, connected: p.connected, isHost: p.id === state.hostId })),
+    gameId: state.gameId,
+    lastRating: state.lastRating,
     game: game && {
       numPlayers: game.numPlayers,
       maxHand: game.maxHand,

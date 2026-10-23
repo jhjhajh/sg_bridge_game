@@ -89,6 +89,11 @@ async function loadLeaderboard() {
 function renderLeaderboard(data) {
   const section = document.getElementById('leaderboard-section');
   if (!section) return;
+  // Shared Fun Central card with a Bridge | Regicide switch (static/leaderboard.js).
+  if (window.FunLeaderboard) {
+    window.FunLeaderboard.mount(section, { game: 'bridge', bridgeData: data, footer: '<button class="btn-link" onclick="showStats()">📊 Full stats →</button>' });
+    return;
+  }
   if (!data.top || data.top.length === 0) {
     section.innerHTML = '';
     return;

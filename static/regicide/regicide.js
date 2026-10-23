@@ -6,7 +6,7 @@ const SUIT_NAME = { H: 'Hearts', D: 'Diamonds', C: 'Clubs', S: 'Spades' };
 const SUIT_POWER = { H: 'Heal', D: 'Draw', C: 'Double', S: 'Shield' };
 const ROYAL_NAME = { J: 'Jack', Q: 'Queen', K: 'King' };
 const ROYAL_VALUE = { J: 10, Q: 15, K: 20 };
-const SUIT_ORDER = ['S', 'H', 'C', 'D'];
+const SUIT_ORDER = ['C', 'D', 'H', 'S']; // Bridge's hand order
 const SETUP = { 1: [8, '2 Jester flips'], 2: [7, 'No Jesters'], 3: [6, '1 Jester'], 4: [5, '2 Jesters'] };
 
 const isJester = (c) => c.startsWith('X');
@@ -51,32 +51,41 @@ function el(tag, cls, text) {
   return node;
 }
 
-function cardEl(code, { tag = 'div', size = '' } = {}) {
-  const node = el(tag, `rc-card ${size}`.trim());
+/** A Bridge-style card face: corner rank over suit. */
+function cardEl(code, { tag = 'div', mini = false } = {}) {
+  const node = el(tag, mini ? 'card-mini' : 'card');
   node.dataset.card = code;
   if (isJester(code)) {
-    node.classList.add('jester');
-    node.append(el('span', 'c-corner', '★'), el('span', 'c-center', '🃏'));
+    node.classList.add('black', 'rc-jester');
     node.setAttribute('aria-label', 'Jester');
+    if (mini) node.append(el('span', 'card-value', '🃏'));
+    else node.append(el('span', 'card-corner', '🃏'));
     return node;
   }
   const rank = rankOf(code);
   const sym = SUIT_SYMBOL[suitOf(code)];
-  if (isRed(code)) node.classList.add('red');
-  const corner = el('span', 'c-corner');
-  corner.append(el('b', null, rank), el('i', null, sym));
-  const center = el('span', 'c-center');
-  if (ROYAL_NAME[rank]) {
-    node.classList.add('royal');
-    center.append(el('span', 'c-royal', rank), el('span', 'c-royal-suit', sym));
-  } else if (rank === 'A') {
-    node.classList.add('ace');
-    center.append(el('span', 'c-pip', sym), el('span', 'c-paw', '🐾'));
-  } else {
-    center.append(el('span', 'c-pip', sym));
+  node.classList.add(isRed(code) ? 'red' : 'black');
+  const value = el('span', 'card-value', rank);
+  const suit = el('span', 'card-suit', sym);
+  if (mini) node.append(value, suit);
+  else {
+    const corner = el('span', 'card-corner');
+    corner.append(value, suit);
+    node.append(corner);
+    if (rank === 'A') node.append(el('span', 'rc-face', '🐾'));
   }
-  node.append(corner, center);
   node.setAttribute('aria-label', rank === 'A' ? `Ace (companion) of ${SUIT_NAME[suitOf(code)]}` : `${ROYAL_NAME[rank] ?? rank} of ${SUIT_NAME[suitOf(code)]}`);
+  return node;
+}
+
+/** The current enemy: a larger card with a big royal letter. */
+function enemyCardEl(code) {
+  const node = el('div', `rc-enemy-card ${isRed(code) ? 'red' : 'black'}`);
+  node.dataset.card = code;
+  const corner = el('span', 'card-corner');
+  corner.append(el('span', 'card-value', rankOf(code)), el('span', 'card-suit', SUIT_SYMBOL[suitOf(code)]));
+  node.append(corner, el('span', 'rc-big', SUIT_SYMBOL[suitOf(code)]));
+  node.setAttribute('aria-label', enemyName(code));
   return node;
 }
 
@@ -84,14 +93,12 @@ function cardText(cards) {
   return cards.map(label).join(' ');
 }
 
-let toastTimer = 0;
 function toast(message, kind = '') {
   const stack = $('toasts');
-  const node = el('div', `toast ${kind}`.trim(), message);
+  const node = el('div', `rc-toast ${kind}`.trim(), message);
   stack.append(node);
   while (stack.children.length > 3) stack.firstChild.remove();
   setTimeout(() => node.remove(), kind === 'error' ? 3800 : 2600);
-  clearTimeout(toastTimer);
 }
 
 // ---------- Identity ----------
@@ -112,6 +119,7 @@ let playerId = hashInfo.pid || store.get('regicidePlayerId');
 if (!playerId) playerId = (crypto.randomUUID?.() ?? `p${Date.now()}${Math.random().toString(36).slice(2)}`);
 if (!hashInfo.pid) store.set('regicidePlayerId', playerId);
 let playerName = store.get('playerName') || '';
+let profile = null; // verified Telegram profile (FunAuth), null until signed in
 
 // ---------- State ----------
 let ws = null;
@@ -133,12 +141,13 @@ function connect(code) {
   clearTimeout(reconnectTimer);
   if (ws) { ws.onclose = null; ws.close(); }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const socket = new WebSocket(`${proto}//${location.host}/api/regicide/ws?room=${code}&playerId=${encodeURIComponent(playerId)}`);
+  const token = FunAuth.token();
+  const socket = new WebSocket(`${proto}//${location.host}/api/regicide/ws?room=${code}&playerId=${encodeURIComponent(playerId)}${token ? `&token=${encodeURIComponent(token)}` : ''}`);
   ws = socket;
   joinSent = false;
   socket.onopen = () => {
     reconnectDelay = 800;
-    $('tb-conn').classList.add('hidden');
+    $('overlay-reconnect').classList.add('hidden');
   };
   socket.onmessage = (event) => {
     let msg;
@@ -148,7 +157,7 @@ function connect(code) {
   };
   socket.onclose = () => {
     if (ws !== socket || !roomCode) return;
-    $('tb-conn').classList.remove('hidden');
+    $('overlay-reconnect').classList.remove('hidden');
     reconnectTimer = setTimeout(() => connect(roomCode), reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.8, 10000);
   };
@@ -171,8 +180,8 @@ function onError(msg) {
 function onState(next) {
   const prev = view;
   view = next;
-  // Join on first contact if we aren't seated yet and seats are open.
-  if (!joinSent && next.you.seat < 0 && !next.game) {
+  // Join on first contact if we aren't seated yet and seats are open (signed-in players only).
+  if (!joinSent && next.you.seat < 0 && !next.game && FunAuth.token()) {
     joinSent = true;
     send({ type: 'join', name: playerName });
   }
@@ -192,16 +201,15 @@ function onState(next) {
 
 // ---------- Screens ----------
 function showScreen(id) {
-  for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id);
+  for (const sc of document.querySelectorAll('.screen')) sc.classList.toggle('active', sc.id === id);
   document.body.dataset.screen = id;
 }
 
 function render() {
   const inRoom = !!roomCode;
-  $('tb-room').classList.toggle('hidden', !inRoom);
+  $('top-bar').classList.toggle('hidden', !inRoom);
   $('tb-room').textContent = roomCode || '';
-  $('btn-leave').classList.toggle('hidden', !inRoom);
-  $('tb-back').classList.toggle('hidden', inRoom);
+  $('tb-name').textContent = playerName;
   if (!inRoom) { showScreen('screen-home'); return; }
   if (!view) { showScreen('screen-lobby'); renderLobbyLoading(); return; }
   if (!view.game) { showScreen('screen-lobby'); renderLobby(); hideModal('modal-over'); hideModal('modal-jester'); return; }
@@ -211,63 +219,70 @@ function render() {
 
 function renderLobbyLoading() {
   $('lobby-code').textContent = roomCode;
-  $('lobby-players').replaceChildren(el('li', 'lobby-slot empty', 'Connecting…'));
+  $('lobby-players').replaceChildren(el('div', 'player-item rc-empty', 'Connecting…'));
   $('btn-start').classList.add('hidden');
-  $('lobby-wait').classList.add('hidden');
-  $('lobby-setup').textContent = '';
+  $('lobby-wait').textContent = '';
+  $('lobby-setup').classList.add('hidden');
+}
+
+function statusDot(connected) {
+  return el('span', `status-dot ${connected ? 'online' : 'offline'}`);
+}
+
+/** One row in Bridge's lobby player list. */
+function playerRow(p, seat, { tag = 'div', meta = null } = {}) {
+  const item = el(tag, 'player-item rc-player');
+  const identity = el('div', 'lobby-identity');
+  const name = el('span', 'lobby-player-name', p.name);
+  identity.append(name);
+  if (p.id === view.you.id) identity.append(el('span', 'rc-you', 'you'));
+  const metaBox = el('div', 'lobby-meta');
+  if (meta) metaBox.append(meta);
+  item.append(el('span', 'seat-num', String(seat + 1)), statusDot(p.connected), identity, metaBox, el('div', 'lobby-action'));
+  return item;
 }
 
 function renderLobby() {
   const { players, you } = view;
   $('lobby-code').textContent = view.roomCode;
-  $('lobby-count').textContent = `${players.length}/4`;
   const list = $('lobby-players');
   list.replaceChildren();
-  players.forEach((p, i) => {
-    const li = el('li', `lobby-slot${p.id === you.id ? ' me' : ''}`);
-    li.append(el('span', 'slot-avatar', initials(p.name)));
-    const name = el('span', 'slot-name', p.name);
-    if (p.id === you.id) name.append(el('span', 'slot-tag', 'you'));
-    li.append(name);
-    if (p.isHost) li.append(el('span', 'slot-host', '👑 Host'));
-    if (!p.connected) li.append(el('span', 'slot-off', 'offline'));
+  players.forEach((p, seat) => {
+    const row = playerRow(p, seat, { meta: p.isHost ? el('span', 'rc-host', '👑 Host') : null });
     if (you.isHost && p.id !== you.id) {
-      const kick = el('button', 'icon-btn slot-kick', '✕');
+      const kick = el('button', 'kick-btn', '✕');
       kick.type = 'button';
       kick.setAttribute('aria-label', `Remove ${p.name}`);
       kick.onclick = () => send({ type: 'kick', playerId: p.id });
-      li.append(kick);
+      row.querySelector('.lobby-action').append(kick);
     }
-    list.append(li);
-    void i;
+    list.append(row);
   });
-  for (let i = players.length; i < 4; i++) list.append(el('li', 'lobby-slot empty', 'Open seat'));
+  for (let i = players.length; i < 4; i++) list.append(el('div', 'player-item rc-empty', 'Open seat'));
 
   const n = players.length;
   const setup = $('lobby-setup');
-  setup.replaceChildren();
+  setup.classList.toggle('hidden', n === 0);
   if (n > 0) {
     const [hand, extra] = SETUP[n];
-    setup.append(
-      el('span', 'chip', n === 1 ? '🧩 Solo' : `👥 ${n} players`),
-      el('span', 'chip', n === 1 ? `🂠 ${hand}-card hand` : `🂠 ${hand} cards each`),
-      el('span', 'chip', `🃏 ${extra}`),
-    );
+    setup.textContent = n === 1
+      ? `🤝 Solo · ${hand}-card hand · ${extra}`
+      : `🤝 Co-op · ${n} players · ${hand} cards each · ${extra}`;
   }
 
   const seated = you.seat >= 0;
   $('btn-start').classList.toggle('hidden', !you.isHost);
-  $('btn-start').textContent = n === 1 ? 'Start solo game' : `Start game (${n} players)`;
+  if (!seated && !FunAuth.token()) {
+    $('lobby-wait').textContent = 'Sign in with Telegram on the Regicide home screen to take a seat — you can watch until then.';
+    return;
+  }
+  $('btn-start').textContent = n === 1 ? 'Start Solo Game' : `Start Game (${n} players)`;
   const wait = $('lobby-wait');
-  wait.classList.toggle('hidden', you.isHost);
   wait.textContent = !seated
     ? (n >= 4 ? 'This room is full.' : 'Joining…')
-    : `Waiting for ${players.find((p) => p.isHost)?.name ?? 'the host'} to start…`;
-}
-
-function initials(name) {
-  const parts = String(name).trim().split(/\s+/);
-  return (parts.length > 1 ? parts[0][0] + parts[1][0] : Array.from(parts[0]).slice(0, 2).join('')).toUpperCase();
+    : you.isHost
+      ? (n < 4 ? 'Share the code — up to 4 can play, or start now.' : 'Table is full — ready when you are.')
+      : `Waiting for ${players.find((p) => p.isHost)?.name ?? 'the host'} to start...`;
 }
 
 // ---------- Game rendering ----------
@@ -284,13 +299,12 @@ function renderGame() {
   const myTurn = me >= 0 && g.currentSeat === me;
   const over = g.phase === 'won' || g.phase === 'lost';
 
-  document.querySelector('.board').classList.toggle('solo', g.numPlayers === 1);
-  renderCastle(g);
+  renderInfo(g);
   $('tavern-count').textContent = g.tavernCount;
   $('discard-count').textContent = g.discardCount;
   renderEnemy(g);
   renderPlayed(g);
-  renderPlayers(g);
+  renderSeats(g);
   renderLog(g);
   renderLastAction(g);
   renderBanner(g, myTurn);
@@ -305,52 +319,32 @@ function renderGame() {
   else if (!over) hideModal('modal-over');
 }
 
-function renderCastle(g) {
-  const pips = $('castle-pips');
-  pips.replaceChildren();
-  const ranks = ['J', 'Q', 'K'];
-  const defeatedByRank = { J: [], Q: [], K: [] };
-  for (const c of g.defeated) defeatedByRank[rankOf(c)].push(c);
-  for (const r of ranks) {
-    const group = el('span', 'pip-group');
-    for (let i = 0; i < 4; i++) {
-      const done = defeatedByRank[r][i];
-      const pip = el('span', 'pip');
-      if (done) {
-        pip.classList.add('done');
-        if (isRed(done)) pip.classList.add('red');
-        pip.textContent = SUIT_SYMBOL[suitOf(done)];
-        pip.title = `${enemyName(done)} defeated`;
-      } else if (i === defeatedByRank[r].length && g.enemy && rankOf(g.enemy) === r) {
-        pip.classList.add('current');
-        pip.textContent = r;
-        pip.title = 'Current enemy';
-      } else {
-        pip.textContent = r;
-      }
-      group.append(pip);
-    }
-    pips.append(group);
-  }
+function renderInfo(g) {
+  $('info-castle').textContent = `🏰 ${g.defeated.length}/12`;
+  $('info-castle').title = `${g.castle.remaining} royals left in the castle`;
+  $('info-attack').textContent = g.shield > 0 ? `⚔️ ${g.attack} (${g.enemyAttack}−${Math.min(g.shield, g.enemyAttack)})` : `⚔️ ${g.attack}`;
+  $('info-shield').textContent = `🛡️ ${g.shield}`;
+  const imm = $('info-immune');
+  imm.classList.toggle('hidden', !g.enemy);
+  if (!g.enemy) return;
+  const suit = suitOf(g.enemy);
+  imm.className = g.jesterActive ? 'cancelled' : (isRed(g.enemy) ? 'red' : '');
+  imm.textContent = g.jesterActive ? '🃏 No immunity' : `Immune ${SUIT_SYMBOL[suit]} ${SUIT_POWER[suit]}`;
 }
 
 function renderEnemy(g) {
   const panel = $('enemy-panel');
   const holder = $('enemy-card');
   if (!g.enemy) {
-    holder.replaceChildren(el('div', 'enemy-empty', '🏰'));
-    $('enemy-name').textContent = g.phase === 'won' ? 'The castle has fallen' : '';
+    holder.replaceChildren(el('div', 'rc-enemy-empty', '🏰'));
+    $('enemy-name').textContent = g.phase === 'won' ? 'Castle taken!' : '';
     $('hp-fill').style.width = '0%';
     $('hp-left').textContent = '0';
     $('hp-max').textContent = '0';
-    $('enemy-attack').textContent = '0';
-    $('enemy-attack-base').textContent = '';
-    $('enemy-shield').textContent = '0';
-    $('enemy-immunity').textContent = '';
     return;
   }
   if (holder.firstChild?.dataset?.card !== g.enemy) {
-    const card = cardEl(g.enemy, { size: 'xl' });
+    const card = enemyCardEl(g.enemy);
     if (lastEnemy && lastEnemy !== g.enemy) card.classList.add('reveal');
     holder.replaceChildren(card);
   }
@@ -368,59 +362,52 @@ function renderEnemy(g) {
   }
   lastEnemy = g.enemy;
   lastDamage = g.enemyDamage;
-
-  $('enemy-attack').textContent = g.attack;
-  $('enemy-attack-base').textContent = g.shield > 0 ? ` (${g.enemyAttack} − ${Math.min(g.shield, g.enemyAttack)})` : '';
-  $('enemy-shield').textContent = g.shield;
-  const imm = $('enemy-immunity');
-  imm.replaceChildren();
-  const suit = suitOf(g.enemy);
-  if (g.jesterActive) {
-    imm.className = 'immunity cancelled';
-    imm.append(el('span', null, '🃏'), el('span', null, `Immunity cancelled — ${SUIT_SYMBOL[suit]} powers work`));
-  } else {
-    imm.className = `immunity${isRed(g.enemy) ? ' red' : ''}`;
-    imm.append(el('span', 'imm-suit', SUIT_SYMBOL[suit]), el('span', null, `Immune to ${SUIT_NAME[suit]} (${SUIT_POWER[suit].toLowerCase()})`));
-  }
 }
 
 function renderPlayed(g) {
   const row = $('played-cards');
   row.replaceChildren();
   if (!g.played.length) {
-    row.append(el('span', 'played-empty', 'No attacks yet'));
+    row.append(el('span', 'rc-played-empty', 'No attacks yet'));
     return;
   }
   for (const play of g.played) {
-    const group = el('span', 'played-group');
+    const group = el('span', 'rc-played-group');
     group.title = `${who(play.seat)}: ${play.damage} damage`;
-    for (const c of play.cards) group.append(cardEl(c, { size: 'mini' }));
-    if (play.damage) group.append(el('span', 'played-dmg', `−${play.damage}`));
+    for (const c of play.cards) group.append(cardEl(c, { mini: true }));
+    if (play.damage) group.append(el('span', 'rc-played-dmg', `−${play.damage}`));
     row.append(group);
   }
 }
 
-function renderPlayers(g) {
-  const box = $('players');
-  box.className = `players n${view.players.length}`;
-  box.replaceChildren();
+/** Table positions relative to the viewer, like Bridge: you at the bottom, then clockwise. */
+function seatPositions(n, me) {
+  const order = { 1: ['bottom'], 2: ['bottom', 'top'], 3: ['bottom', 'left', 'right'], 4: ['bottom', 'left', 'top', 'right'] }[n];
+  const base = me >= 0 ? me : 0;
+  const map = {};
+  for (let i = 0; i < n; i++) map[(base + i) % n] = order[i];
+  return map;
+}
+
+function renderSeats(g) {
+  const positions = seatPositions(view.players.length, view.you.seat);
+  for (const pos of ['top', 'left', 'right', 'bottom']) {
+    const label = $(`seat-${pos}`);
+    label.replaceChildren();
+    label.className = 'seat-label';
+  }
+  const over = g.phase === 'won' || g.phase === 'lost';
   view.players.forEach((p, seat) => {
-    const card = el('div', 'player');
-    if (seat === g.currentSeat && g.phase !== 'won' && g.phase !== 'lost') card.classList.add('active');
-    if (seat === view.you.seat) card.classList.add('me');
-    if (!p.connected) card.classList.add('offline');
-    card.append(el('span', 'player-avatar', initials(p.name)));
-    const info = el('span', 'player-info');
-    const name = el('span', 'player-name', seat === view.you.seat ? 'You' : p.name);
-    name.title = p.name;
-    const meta = el('span', 'player-meta', `🂠 ${g.handCounts[seat]}/${g.maxHand}`);
-    if (!p.connected) meta.append(el('span', 'player-off', ' · offline'));
-    info.append(name, meta);
-    card.append(info);
-    if (seat === g.currentSeat && g.phase !== 'won' && g.phase !== 'lost') {
-      card.append(el('span', 'player-turn', g.phase === 'discard' ? 'hit' : g.phase === 'jester' ? 'choosing' : 'turn'));
-    }
-    box.append(card);
+    const label = $(`seat-${positions[seat]}`);
+    if (!label) return;
+    const active = seat === g.currentSeat && !over;
+    label.classList.toggle('active-turn', active);
+    label.classList.toggle('disconnected', !p.connected);
+    const nameRow = el('div', 'seat-name-row');
+    nameRow.append(statusDot(p.connected), el('span', 'seat-name', seat === view.you.seat ? 'You' : p.name));
+    label.title = p.name;
+    label.append(nameRow, el('span', 'seat-sets', `🂠 ${g.handCounts[seat]}`));
+    if (active && g.phase !== 'play') label.append(el('span', 'rc-tag', g.phase === 'discard' ? `taking ${g.pendingDamage}` : 'choosing'));
   });
 }
 
@@ -484,52 +471,78 @@ function renderBanner(g, myTurn) {
   let kind = '';
   const name = playerName_(g.currentSeat);
   if (g.phase === 'won') { text = 'Victory! Every royal has been defeated.'; kind = 'good'; }
-  else if (g.phase === 'lost') { text = `Defeat — ${who(g.currentSeat)} ${g.loseReason}`; kind = 'bad'; }
+  else if (g.phase === 'lost') { text = `Defeat — ${who(g.currentSeat)} ${g.loseReason}`; kind = 'danger'; }
   else if (view.you.seat < 0) { text = `👁 Watching · ${name}'s turn`; }
   else if (myTurn && g.phase === 'play') {
-    text = g.hand.length === 0 ? 'No cards left — you must yield' : 'Your turn — attack with a card or combo' + (g.canYield ? ', or yield' : '');
+    text = g.hand.length === 0
+      ? (g.numPlayers === 1 ? 'No cards left — flip a Jester to refill' : 'No cards left — you must yield')
+      : 'Your turn · pick a card or combo';
     kind = 'mine';
+  } else if (myTurn && mustFlip(g)) {
+    text = `Your hand can't cover ${g.pendingDamage} damage — flip a Jester or you lose`;
+    kind = 'danger';
   } else if (myTurn && g.phase === 'discard') {
-    text = `Take ${g.pendingDamage} damage — discard cards worth at least ${g.pendingDamage}`;
+    text = `Take ${g.pendingDamage} damage · discard cards worth ${g.pendingDamage}+`;
     kind = 'danger';
   } else if (myTurn && g.phase === 'jester') { text = 'Choose who goes next'; kind = 'mine'; }
   else if (g.phase === 'discard') text = `${name} is taking ${g.pendingDamage} damage…`;
   else if (g.phase === 'jester') text = `${name} is choosing who goes next…`;
   else text = `${name} is attacking…`;
   banner.textContent = text;
-  banner.className = `turn-banner ${kind}`.trim();
+  banner.className = `rc-turn ${kind}`.trim();
+}
+
+/** Bridge-style fan geometry for up to 8 cards. */
+function fanLayout(container, n) {
+  const width = container.clientWidth || 340;
+  const cardW = Math.round(Math.min(86, Math.max(52, width / 5.2)));
+  // Keep the rotated outer cards inside the container (their corners swing ~20% of a card outwards).
+  const usable = width - cardW * 1.4;
+  const spacing = n > 1 ? Math.min(cardW * 0.8, usable / (n - 1)) : 0;
+  const mid = (n - 1) / 2;
+  const step = n > 1 ? Math.min(5, 24 / (n - 1)) : 0;
+  const arc = cardW * 0.04;
+  container.style.setProperty('--hand-card-width', `${cardW}px`);
+  container.style.setProperty('--corner-font', `${Math.round(cardW * 0.3)}px`);
+  container.style.height = `${Math.round(cardW * 1.4 + 18 + arc * mid * mid + 8)}px`;
+  return (i) => ({ left: width / 2 + (i - mid) * spacing - cardW / 2, top: 18 + arc * (i - mid) ** 2, angle: (i - mid) * step });
 }
 
 function renderHand(g, myTurn) {
   const hand = $('hand');
-  const area = hand.parentElement;
-  area.classList.toggle('spectating', !g.hand);
   if (!g.hand) {
-    hand.replaceChildren(el('div', 'hand-empty', 'You are watching this game.'));
+    hand.style.height = '60px';
+    hand.replaceChildren(el('div', 'rc-hand-empty', 'You are watching this game.'));
     $('hand-total').textContent = '';
     $('preview').textContent = '';
+    $('btn-bestfit').classList.add('hidden');
     return;
   }
   const cards = sortHand(g.hand);
   const interactive = myTurn && (g.phase === 'play' || g.phase === 'discard');
   hand.classList.toggle('interactive', interactive);
-  hand.style.setProperty('--n', String(cards.length));
   hand.replaceChildren();
-  if (!cards.length) hand.append(el('div', 'hand-empty', 'Your hand is empty'));
+  const place = fanLayout(hand, cards.length);
+  if (!cards.length) hand.append(el('div', 'rc-hand-empty', 'Your hand is empty'));
   const sel = [...selected];
-  for (const code of cards) {
+  cards.forEach((code, i) => {
     const node = cardEl(code, { tag: 'button' });
     node.type = 'button';
     node.classList.add('hand-card');
+    const pos = place(i);
+    node.style.left = `${pos.left}px`;
+    node.style.top = `${pos.top}px`;
+    node.style.setProperty('--card-angle', `${pos.angle}deg`);
+    node.style.setProperty('--card-order', String(i + 1));
     const isSel = selected.has(code);
-    node.classList.toggle('selected', isSel);
+    node.classList.toggle('is-selected', isSel);
     node.setAttribute('aria-pressed', String(isSel));
     if (!interactive) node.disabled = true;
-    else if (g.phase === 'play' && !isSel && sel.length && validatePlay([...sel, code])) node.classList.add('dim');
+    else if (g.phase === 'play' && !isSel && sel.length && validatePlay([...sel, code])) node.classList.add('rc-dim');
     node.addEventListener('click', () => onCardTap(code));
     hand.append(node);
-  }
-  $('hand-total').textContent = `Hand value ${sum(g.hand)}`;
+  });
+  $('hand-total').textContent = `Hand value ${sum(g.hand)} · ${g.hand.length}/${g.maxHand} cards`;
   $('btn-bestfit').classList.toggle('hidden', !(myTurn && g.phase === 'discard' && sum(g.hand) >= g.pendingDamage));
   renderPreview(g, myTurn);
 }
@@ -576,7 +589,8 @@ function playPreview(g, cards) {
   const damage = doubled ? value * 2 : value;
   const remaining = g.enemyHealth - g.enemyDamage;
   let outcome;
-  if (damage === remaining) outcome = 'exact kill — it joins you!';
+  if (damage >= remaining && g.castle.remaining === 0) outcome = 'defeats the last King — victory!';
+  else if (damage === remaining) outcome = 'exact kill — it joins you!';
   else if (damage > remaining) outcome = 'defeats it!';
   else {
     const shield = g.shield + (suits.has('S') && !immune('S') ? value : 0);
@@ -589,7 +603,7 @@ function playPreview(g, cards) {
 
 function renderPreview(g, myTurn) {
   const preview = $('preview');
-  preview.className = 'preview';
+  preview.className = 'rc-preview';
   if (!myTurn || !selected.size) { preview.textContent = ''; return; }
   if (g.phase === 'play') {
     const p = playPreview(g, [...selected]);
@@ -602,14 +616,23 @@ function renderPreview(g, myTurn) {
   }
 }
 
+/**
+ * Solo, and a Jester flip is the only legal move: the hand can't cover the damage (Step 4),
+ * or it's empty at the start of the turn (Step 1, solo can't yield). Without a flip left the
+ * engine has already ended the game.
+ */
+function mustFlip(g) {
+  if (g.numPlayers !== 1 || g.soloJestersLeft <= 0 || !g.hand) return false;
+  if (g.phase === 'discard') return sum(g.hand) < g.pendingDamage;
+  return g.phase === 'play' && g.hand.length === 0;
+}
+
 function renderActions(g, myTurn) {
-  const bar = $('action-bar');
   const act = $('btn-act');
   const yieldBtn = $('btn-yield');
   const flip = $('btn-flip');
   const over = g.phase === 'won' || g.phase === 'lost';
   const seated = view.you.seat >= 0;
-  bar.classList.toggle('waiting', !myTurn || over);
 
   flip.classList.toggle('hidden', !(g.numPlayers === 1 && seated && !over));
   flip.disabled = !(myTurn && g.soloJestersLeft > 0 && (g.phase === 'play' || g.phase === 'discard'));
@@ -629,6 +652,15 @@ function renderActions(g, myTurn) {
     return;
   }
   const sel = [...selected];
+  if (myTurn && mustFlip(g)) {
+    // Solo rule: a Jester may be flipped at the start of Step 4 — it's the only way to survive this hit.
+    yieldBtn.classList.add('hidden');
+    flip.classList.add('hidden');
+    act.textContent = `🃏 Flip Jester to survive (${g.soloJestersLeft} left)`;
+    act.disabled = false;
+    act.dataset.action = 'flip';
+    return;
+  }
   if (g.phase === 'discard') {
     yieldBtn.classList.add('hidden');
     const v = sum(sel);
@@ -644,9 +676,10 @@ function renderActions(g, myTurn) {
     act.dataset.action = 'jester';
     return;
   }
-  yieldBtn.classList.remove('hidden');
+  // Solo players can't yield, so the button only exists in multiplayer.
+  yieldBtn.classList.toggle('hidden', g.numPlayers === 1);
   yieldBtn.disabled = !(myTurn && g.phase === 'play' && g.canYield);
-  yieldBtn.title = g.canYield ? 'Skip attacking and take the hit' : "Can't yield — everyone else just yielded";
+  yieldBtn.title = g.canYield ? 'Skip attacking and take the hit' : "Can't yield — everyone else yielded on their last turn";
   const valid = sel.length > 0 && !validatePlay(sel);
   act.textContent = myTurn ? (valid ? `Play ${cardText(sel)}` : 'Play') : 'Waiting…';
   act.disabled = !(myTurn && g.phase === 'play' && valid);
@@ -662,22 +695,17 @@ function showModal(id) {
 }
 function hideModal(id) {
   $(id).classList.add('hidden');
-  if (!document.querySelector('.modal:not(.hidden)')) document.body.classList.remove('modal-open');
+  if (!document.querySelector('.rc-modal:not(.hidden)')) document.body.classList.remove('modal-open');
 }
 
 function showJesterModal(g) {
   const box = $('jester-choices');
   box.replaceChildren();
   view.players.forEach((p, seat) => {
-    const b = el('button', 'btn btn-secondary btn-block jester-choice');
-    b.type = 'button';
-    b.append(
-      el('span', 'player-avatar', initials(p.name)),
-      el('span', 'jc-name', seat === view.you.seat ? `${p.name} (you)` : p.name),
-      el('span', 'jc-meta', `${p.connected ? '' : 'offline · '}🂠 ${g.handCounts[seat]}`),
-    );
-    b.onclick = () => send({ type: 'chooseNext', seat });
-    box.append(b);
+    const row = playerRow(p, seat, { tag: 'button', meta: el('span', 'lobby-stats', `🂠 ${g.handCounts[seat]}`) });
+    row.type = 'button';
+    row.onclick = () => send({ type: 'chooseNext', seat });
+    box.append(row);
   });
   showModal('modal-jester');
 }
@@ -685,18 +713,38 @@ function showJesterModal(g) {
 function showOverModal(g) {
   const won = g.phase === 'won';
   const tierEmoji = { gold: '🥇', silver: '🥈', bronze: '🥉' };
-  $('over-emoji').textContent = won ? (tierEmoji[g.tier] ?? '👑') : '💀';
-  $('over-title').textContent = won ? (g.tier ? `${g.tier[0].toUpperCase()}${g.tier.slice(1)} victory!` : 'Victory!') : 'Defeat';
+  const box = $('over-box');
+  // Bridge's game-over panel colours: green glow for a win, red for a loss.
+  box.classList.toggle('gameover-win', won);
+  box.classList.toggle('gameover-loss', !won);
+  $('over-title').textContent = won
+    ? `${tierEmoji[g.tier] ?? '👑'} ${g.tier ? `${g.tier[0].toUpperCase()}${g.tier.slice(1)} Victory!` : 'Victory!'}`
+    : '💀 Defeat';
   $('over-sub').textContent = won
     ? (g.numPlayers === 1 ? `You stormed the castle using ${2 - g.soloJestersLeft} Jester flip${2 - g.soloJestersLeft === 1 ? '' : 's'}.` : 'Your party stormed the castle together.')
     : `${who(g.currentSeat)} ${g.loseReason}.`;
   const stats = $('over-stats');
   stats.replaceChildren();
-  const stat = (n, l) => { const s = el('div', 'over-stat'); s.append(el('b', null, n), el('span', null, l)); return s; };
+  const stat = (n, l) => { const d = el('div'); d.append(el('b', null, n), el('span', null, l)); return d; };
   stats.append(stat(`${g.defeated.length}/12`, 'royals defeated'), stat(String(g.defeated.filter((c) => rankOf(c) === 'K').length), 'kings'));
   if (g.enemy && !won) stats.append(stat(`${Math.max(0, g.enemyHealth - g.enemyDamage)}`, `HP left on ${label(g.enemy)}`));
+  renderRatingResult();
   $('btn-again').classList.toggle('hidden', view.you.seat < 0);
   showModal('modal-over');
+}
+
+function renderRatingResult() {
+  const box = $('over-rating');
+  const rating = view.lastRating;
+  if (!rating || rating.gameId !== view.gameId || !rating.changes.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const rows = rating.changes.map((c) => {
+    const row = el('div', 'lb-row');
+    const delta = el('span', c.delta >= 0 ? 'rc-delta-up' : 'rc-delta-down', `${c.delta >= 0 ? '+' : ''}${c.delta}`);
+    row.append(el('span', 'lb-name', c.seat === view.you.seat ? 'You' : c.name), el('span', 'lb-elo', String(c.after)), delta);
+    return row;
+  });
+  box.replaceChildren(el('div', 'lb-header', '🏆 Regicide rating'), ...rows);
 }
 
 // ---------- Room lifecycle ----------
@@ -719,29 +767,74 @@ function leaveRoom(notify = true) {
   clearTimeout(reconnectTimer);
   if (socket) { socket.onclose = null; setTimeout(() => socket.close(), 50); }
   history.replaceState(null, '', location.pathname);
-  $('tb-conn').classList.add('hidden');
-  for (const m of document.querySelectorAll('.modal')) m.classList.add('hidden');
+  $('overlay-reconnect').classList.add('hidden');
+  for (const m of document.querySelectorAll('.rc-modal')) m.classList.add('hidden');
   document.body.classList.remove('modal-open');
   render();
 }
 
-function requireName() {
+async function requireName() {
+  if (!FunAuth.token()) { toast('Sign in with Telegram first', 'error'); return false; }
   const input = $('input-name');
   const name = input.value.trim();
   if (!name) {
     input.focus();
-    input.classList.add('shake');
-    setTimeout(() => input.classList.remove('shake'), 400);
     toast('Enter your name first', 'error');
     return false;
+  }
+  // Telegram accounts without a usable name pick one once, saved to the shared profile (like Bridge).
+  if (!input.readOnly && profile && name !== profile.displayName) {
+    try {
+      await fetch('/api/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${FunAuth.token()}` }, body: JSON.stringify({ displayName: name }) });
+      profile.displayName = name;
+    } catch { /* keep going with the local name */ }
   }
   playerName = name;
   store.set('playerName', name);
   return true;
 }
 
+/** Bridge's home flow: signed in → game section with the Telegram name; otherwise the login box. */
+function showSignedIn(p) {
+  profile = p;
+  $('login-section').classList.add('hidden');
+  $('game-section').classList.remove('hidden');
+  const input = $('input-name');
+  const name = p.nameRequired ? '' : (p.displayName || playerName);
+  input.value = name;
+  input.readOnly = !!(p.displayName && !p.nameRequired);
+  input.classList.toggle('input-readonly', input.readOnly);
+  if (name) { playerName = name; store.set('playerName', name); }
+  const status = $('auth-status');
+  status.innerHTML = '';
+  if (p.displayName) {
+    status.append('Logged in as ', el('strong', null, p.displayName), ' · ');
+    const out = el('a', null, 'Logout');
+    out.href = '#';
+    out.onclick = (e) => { e.preventDefault(); FunAuth.logout(); profile = null; showSignedOut(); FunLeaderboard.mount($('leaderboard-section'), { game: 'regicide' }); };
+    status.append(out);
+  }
+}
+
+function showSignedOut() {
+  $('game-section').classList.add('hidden');
+  $('login-section').classList.remove('hidden');
+  FunAuth.mountLogin($('login-section'), (p) => {
+    showSignedIn(p);
+    FunLeaderboard.mount($('leaderboard-section'), { game: 'regicide' });
+    if (pendingRoom) { const room = pendingRoom; pendingRoom = null; enterRoom(room); }
+  });
+}
+
+let pendingRoom = null;
+async function initAuth() {
+  const p = await FunAuth.profile();
+  if (p) showSignedIn(p);
+  else showSignedOut();
+}
+
 async function createRoom() {
-  if (!requireName()) return;
+  if (!await requireName()) return;
   const btn = $('btn-create');
   btn.disabled = true;
   try {
@@ -756,8 +849,8 @@ async function createRoom() {
   }
 }
 
-function joinRoom() {
-  if (!requireName()) return;
+async function joinRoom() {
+  if (!await requireName()) return;
   const code = $('input-code').value.trim().toUpperCase();
   if (!/^[A-Z0-9]{4}$/.test(code)) {
     $('input-code').focus();
@@ -808,6 +901,7 @@ $('btn-act').addEventListener('click', () => {
   const action = $('btn-act').dataset.action;
   if (action === 'results') { overDismissed = false; showOverModal(view.game); return; }
   if (action === 'jester') { showJesterModal(view.game); return; }
+  if (action === 'flip') { send({ type: 'flip' }); return; }
   send({ type: action, cards: [...selected] });
 });
 $('btn-bestfit').addEventListener('click', () => {
@@ -833,6 +927,13 @@ document.addEventListener('keydown', (e) => {
 // Desktop: keep the log open by default.
 if (matchMedia('(min-width: 960px)').matches) $('log-details').open = true;
 
+// The fan is laid out in pixels, so re-lay it when the width changes.
+let resizeTimer = 0;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (view?.game) renderHand(view.game, view.you.seat === view.game.currentSeat); }, 100);
+});
+
 // Reconnect promptly when a phone wakes the tab.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && roomCode && ws?.readyState !== WebSocket.OPEN) connect(roomCode);
@@ -841,8 +942,8 @@ setInterval(() => { if (ws?.readyState === WebSocket.OPEN) ws.send('ping'); }, 2
 
 function openFromHash(room) {
   $('input-code').value = room;
-  if (playerName) enterRoom(room);
-  else { render(); $('input-name').focus(); toast(`Enter your name to join room ${room}`); }
+  if (FunAuth.token() && playerName) enterRoom(room);
+  else { pendingRoom = room; render(); toast(`Sign in to join room ${room}`); }
 }
 
 // An invite link opened in an already-loaded tab only changes the hash.
@@ -854,5 +955,8 @@ addEventListener('hashchange', () => {
   }
 });
 
-if (hashInfo.room) openFromHash(hashInfo.room);
-else render();
+FunLeaderboard.mount($('leaderboard-section'), { game: 'regicide' });
+initAuth().finally(() => {
+  if (hashInfo.room) openFromHash(hashInfo.room);
+  else render();
+});
