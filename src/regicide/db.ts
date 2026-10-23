@@ -11,6 +11,9 @@ export interface RegicideGameResult {
   outcome: RegicideOutcome;
   jestersUsed: number;
   telegramIds: number[];
+  /** Verified group members, committed atomically with the global result. */
+  groupId?: string | null;
+  memberIds?: number[];
 }
 
 export interface RatingChange {
@@ -25,21 +28,11 @@ export interface RatingChange {
  * Idempotent per gameId: a second call for the same game changes nothing and returns [].
  */
 export async function recordRegicideGame(db: D1Database, result: RegicideGameResult, now = Math.floor(Date.now() / 1000)): Promise<RatingChange[]> {
-  const inserted = await db
-    .prepare(
-      `INSERT OR IGNORE INTO regicide_games (game_id, room_code, num_players, defeated, outcome, jesters_used, played_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(result.gameId, result.roomCode, result.numPlayers, result.defeated, result.outcome, result.jestersUsed, now)
-    .run();
-  if (!inserted.meta.changes) return [];
-
   const ids = [...new Set(result.telegramIds)];
-  if (ids.length === 0) return [];
-  const rows = await db
+  const rows = ids.length ? await db
     .prepare(`SELECT telegram_id, rating, games_played FROM regicide_ratings WHERE telegram_id IN (${ids.map(() => '?').join(',')})`)
     .bind(...ids)
-    .all<{ telegram_id: number; rating: number; games_played: number }>();
+    .all<{ telegram_id: number; rating: number; games_played: number }>() : { results: [] };
   const existing = new Map((rows.results ?? []).map((r) => [r.telegram_id, r]));
   const team: RatedPlayer[] = ids.map((id) => ({
     telegramId: id,
@@ -49,27 +42,52 @@ export async function recordRegicideGame(db: D1Database, result: RegicideGameRes
   const won = result.outcome === 'won';
   const deltas = computeRegicideDeltas(team, result.defeated, won);
 
-  const changes: RatingChange[] = team.map((p) => {
+  // D1 batches are transactions. Gate every write on the completion marker and
+  // insert that marker LAST, so failures roll back and concurrent retries are no-ops.
+  // Deltas may use the earlier read, but history and arithmetic use the rating
+  // actually present in this transaction (another room may have just rated it).
+  const statements = team.flatMap((p) => {
     const delta = deltas.get(p.telegramId) ?? 0;
-    return { telegramId: p.telegramId, before: p.rating, after: p.rating + delta, delta };
+    return [
+      db.prepare(
+        `INSERT INTO regicide_rating_history (game_id, telegram_id, rating_before, rating_after, delta, played_at)
+         SELECT ?, ?, COALESCE(r.rating, ?), COALESCE(r.rating, ?) + ?, ?, ?
+         FROM (SELECT 1) LEFT JOIN regicide_ratings r ON r.telegram_id = ?
+         WHERE NOT EXISTS (SELECT 1 FROM regicide_games WHERE game_id = ?)
+         RETURNING telegram_id AS telegramId, rating_before AS before, rating_after AS after, delta`,
+      ).bind(result.gameId, p.telegramId, START_RATING, START_RATING, delta, delta, now, p.telegramId, result.gameId),
+      db.prepare(
+        `INSERT INTO regicide_ratings (telegram_id, rating, games_played, wins, best_defeated, updated_at)
+         SELECT ?, ?, 1, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM regicide_games WHERE game_id = ?)
+         ON CONFLICT(telegram_id) DO UPDATE SET
+           rating = regicide_ratings.rating + ?,
+           games_played = games_played + 1,
+           wins = wins + excluded.wins,
+           best_defeated = MAX(best_defeated, excluded.best_defeated),
+           updated_at = excluded.updated_at`,
+      ).bind(p.telegramId, START_RATING + delta, won ? 1 : 0, result.defeated, now, result.gameId, delta),
+    ];
   });
-  await db.batch(changes.flatMap((c) => [
-    db.prepare(
-      `INSERT INTO regicide_ratings (telegram_id, rating, games_played, wins, best_defeated, updated_at)
-       VALUES (?, ?, 1, ?, ?, ?)
-       ON CONFLICT(telegram_id) DO UPDATE SET
-         rating = excluded.rating,
-         games_played = games_played + 1,
-         wins = wins + excluded.wins,
-         best_defeated = MAX(best_defeated, excluded.best_defeated),
-         updated_at = excluded.updated_at`,
-    ).bind(c.telegramId, c.after, won ? 1 : 0, result.defeated, now),
-    db.prepare(
-      `INSERT OR IGNORE INTO regicide_rating_history (game_id, telegram_id, rating_before, rating_after, delta, played_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).bind(result.gameId, c.telegramId, c.before, c.after, c.delta, now),
-  ]));
-  return changes;
+  if (result.groupId) {
+    for (const id of new Set(result.memberIds ?? [])) {
+      statements.push(db.prepare(
+        `INSERT INTO regicide_group_stats (group_id, telegram_id, games_played, wins, best_defeated)
+         SELECT ?, ?, 1, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM regicide_games WHERE game_id = ?)
+         ON CONFLICT(group_id, telegram_id) DO UPDATE SET
+           games_played = games_played + 1,
+           wins = wins + excluded.wins,
+           best_defeated = MAX(best_defeated, excluded.best_defeated)`,
+      ).bind(result.groupId, id, won ? 1 : 0, result.defeated, result.gameId));
+    }
+  }
+  statements.push(db.prepare(
+    `INSERT OR IGNORE INTO regicide_games (game_id, room_code, num_players, defeated, outcome, jesters_used, played_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(result.gameId, result.roomCode, result.numPlayers, result.defeated, result.outcome, result.jestersUsed, now));
+  const committed = await db.batch<RatingChange>(statements);
+  return team.flatMap((_, i) => committed[i * 2].results ?? []);
 }
 
 export interface RegicideLeaderboardEntry {

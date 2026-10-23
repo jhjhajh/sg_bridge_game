@@ -6,11 +6,12 @@ import {
   enemyStats, shieldValue, currentAttack, canYield, cardSuit, cardRank, soloTier,
   type RegicideGame, type Rng,
 } from './engine';
-import { recordRegicideGame, recordRegicideGroupResult, type RegicideOutcome } from './db';
+import { recordRegicideGame, type RegicideOutcome, type RatingChange } from './db';
 import { sendMessage, isChatMember, escapeHtml } from '../telegram';
 
 export const MAX_PLAYERS = 4;
 const INACTIVITY_MS = 30 * 60 * 1000;
+const RATING_RETRY_MS = 60 * 1000;
 const VIEW_LOG = 30;
 
 interface RoomPlayer {
@@ -25,6 +26,15 @@ interface RoomPlayer {
 
 interface SeatRating { seat: number; name: string; before: number; after: number; delta: number }
 
+interface PendingRating {
+  outcome: RegicideOutcome;
+  gameId: string;
+  numPlayers: number;
+  defeated: number;
+  jestersUsed: number;
+  seats: RoomPlayer[];
+}
+
 interface RoomState {
   roomCode: string;
   players: RoomPlayer[]; // seat order
@@ -37,6 +47,9 @@ interface RoomState {
   /** Rating result of the most recent rated game. */
   lastRating: { gameId: string; outcome: RegicideOutcome; defeated: number; changes: SeatRating[] } | null;
   ratedGameId: string | null;
+  /** Durable outbox: retained across failures, new games, and object eviction. */
+  pendingRatings?: PendingRating[];
+  idleSince?: number | null;
   /** Telegram group this room was started from (/newregicide), if any. */
   groupId?: string | null;
   groupName?: string | null;
@@ -83,6 +96,7 @@ export type RegicideClientMessage =
 
 export class RegicideRoom extends DurableObject {
   private sessions = new Map<WebSocket, Session>();
+  private ratingWork: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -104,10 +118,9 @@ export class RegicideRoom extends DurableObject {
       const rngState = Number.isInteger(seed) ? Number(seed) : crypto.getRandomValues(new Uint32Array(1))[0] | 0;
       const state: RoomState = {
         roomCode, players: [], hostId: null, game: null, gameNo: 0, gameId: null, rngState, lastRating: null, ratedGameId: null,
-        groupId: groupId ?? null, groupName: groupName ?? null, origin: origin ?? null,
+        groupId: groupId ?? null, groupName: groupName ?? null, origin: origin ?? null, idleSince: Date.now(),
       };
-      await this.ctx.storage.put('state', state);
-      await this.ctx.storage.setAlarm(Date.now() + INACTIVITY_MS);
+      await this.save(state);
       return Response.json({ ok: true });
     }
 
@@ -146,16 +159,15 @@ export class RegicideRoom extends DurableObject {
     const session: Session = { playerId, name: verifiedName };
     server.serializeAttachment(session);
     this.sessions.set(server, session);
-    await this.ctx.storage.deleteAlarm();
+    state.idleSince = null;
 
     const player = state.players.find((p) => p.id === playerId);
-    if (player && !player.connected) {
-      player.connected = true;
-      await this.save(state);
-      this.broadcast(state);
-    } else {
-      this.sendState(server, state, playerId);
-    }
+    const reconnected = player && !player.connected;
+    if (player) player.connected = true;
+    await this.save(state);
+    if (reconnected) this.broadcast(state);
+    else this.sendState(server, state, playerId);
+    this.ctx.waitUntil(this.rateFinishedGame());
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -173,10 +185,15 @@ export class RegicideRoom extends DurableObject {
       ws.send(JSON.stringify({ type: 'error', message: error }));
       return;
     }
-    await this.rateFinishedGame(state);
-    if (state.groupId) await this.notifyGroup(state, before);
+    if (state.game && (state.game.phase === 'won' || state.game.phase === 'lost')) {
+      this.queueRating(state, state.game.phase);
+    }
+    // Storage input gates protect this read/modify/write, but NOT Telegram/D1
+    // awaits. Commit the authoritative transition before starting external I/O.
     await this.save(state);
     this.broadcast(state);
+    this.ctx.waitUntil(this.rateFinishedGame());
+    if (state.groupId) this.ctx.waitUntil(this.notifyGroup(state, before));
   }
 
   async webSocketClose(ws: WebSocket, code: number): Promise<void> {
@@ -189,7 +206,16 @@ export class RegicideRoom extends DurableObject {
   }
 
   async alarm(): Promise<void> {
-    if (this.sessions.size === 0) await this.ctx.storage.deleteAll();
+    await this.rateFinishedGame();
+    const state = await this.getState();
+    if (!state) return;
+    if (state.pendingRatings?.length) {
+      await this.ctx.storage.setAlarm(Date.now() + RATING_RETRY_MS);
+    } else if (this.sessions.size === 0 && Date.now() >= (state.idleSince ?? 0) + INACTIVITY_MS) {
+      await this.ctx.storage.deleteAll();
+    } else {
+      await this.save(state);
+    }
   }
 
   private async disconnect(ws: WebSocket): Promise<void> {
@@ -200,12 +226,10 @@ export class RegicideRoom extends DurableObject {
     if (!state) return;
     if ([...this.sessions.values()].some((s) => s.playerId === session.playerId)) return;
     const player = state.players.find((p) => p.id === session.playerId);
-    if (player) {
-      player.connected = false;
-      await this.save(state);
-      this.broadcast(state);
-    }
-    if (this.sessions.size === 0) await this.ctx.storage.setAlarm(Date.now() + INACTIVITY_MS);
+    if (player) player.connected = false;
+    if (this.sessions.size === 0) state.idleSince = Date.now();
+    await this.save(state);
+    this.broadcast(state);
   }
 
   /** Applies one client message to the room. Returns an error string for the sender, or null. */
@@ -284,54 +308,86 @@ export class RegicideRoom extends DurableObject {
   /** Back to the lobby. A game ended early still counts once a royal has fallen (no dodging a bad run). */
   private endGame(state: RoomState): void {
     const game = state.game;
-    if (game && game.phase !== 'won' && game.phase !== 'lost' && game.defeated.length > 0) {
-      this.pendingRating = this.ratingInput(state, 'abandoned');
+    if (game) {
+      if (game.phase === 'won' || game.phase === 'lost') this.queueRating(state, game.phase);
+      else if (game.defeated.length > 0) this.queueRating(state, 'abandoned');
     }
     state.game = null;
   }
 
-  private pendingRating: { outcome: RegicideOutcome; gameId: string; numPlayers: number; defeated: number; jestersUsed: number; seats: RoomPlayer[] } | null = null;
+  private queueRating(state: RoomState, outcome: RegicideOutcome): void {
+    if (!state.gameId || state.ratedGameId === state.gameId) return;
+    const pending = state.pendingRatings ??= [];
+    if (!pending.some((p) => p.gameId === state.gameId)) pending.push(this.ratingInput(state, outcome));
+  }
 
-  private ratingInput(state: RoomState, outcome: RegicideOutcome) {
+  private ratingInput(state: RoomState, outcome: RegicideOutcome): PendingRating {
     const game = state.game!;
     return {
       outcome, gameId: state.gameId!, numPlayers: game.numPlayers, defeated: game.defeated.length,
-      jestersUsed: game.numPlayers === 1 ? 2 - game.soloJestersLeft : 0, seats: [...state.players],
+      jestersUsed: game.numPlayers === 1 ? 2 - game.soloJestersLeft : 0, seats: state.players.map((p) => ({ ...p })),
     };
   }
 
   /** Writes ratings once per game, when it is won/lost (or was abandoned mid-run). */
-  private async rateFinishedGame(state: RoomState): Promise<void> {
-    const game = state.game;
-    if (!this.pendingRating && game && (game.phase === 'won' || game.phase === 'lost') && state.gameId) {
-      this.pendingRating = this.ratingInput(state, game.phase);
-    }
-    const pending = this.pendingRating;
-    this.pendingRating = null;
-    if (!pending || state.ratedGameId === pending.gameId) return;
-    state.ratedGameId = pending.gameId;
-    const db = (this.env as Env).DB;
-    const rated = pending.seats.filter((p) => p.telegramId !== null);
+  private async rateFinishedGame(): Promise<void> {
+    // Only coalesce external work; gameplay never waits on this promise.
+    if (this.ratingWork) return this.ratingWork;
+    this.ratingWork = this.drainRatings();
+    try { await this.ratingWork; } finally { this.ratingWork = null; }
+  }
+
+  private async drainRatings(): Promise<void> {
+    const env = this.env as Env;
     try {
-      const changes = await recordRegicideGame(db, {
-        gameId: pending.gameId, roomCode: state.roomCode, numPlayers: pending.numPlayers, defeated: pending.defeated,
-        outcome: pending.outcome, jestersUsed: pending.jestersUsed, telegramIds: rated.map((p) => p.telegramId!),
-      });
-      if (state.groupId) {
-        const members = pending.seats.filter((p) => p.isGroupMember && p.telegramId !== null).map((p) => p.telegramId!);
-        await recordRegicideGroupResult(db, state.groupId, members, pending.defeated, pending.outcome === 'won');
+      for (;;) {
+        const state = await this.getState();
+        const pending = state?.pendingRatings?.[0];
+        if (!state || !pending) return;
+        // A quick game can finish before the join's membership lookup returns.
+        if (state.groupId) {
+          for (const p of pending.seats) {
+            if (p.telegramId !== null && p.isGroupMember === undefined) {
+              p.isGroupMember = await isChatMember(env.TELEGRAM_BOT_TOKEN, state.groupId, p.telegramId);
+            }
+          }
+        }
+        let changes = await recordRegicideGame(env.DB, {
+          gameId: pending.gameId, roomCode: state.roomCode, numPlayers: pending.numPlayers, defeated: pending.defeated,
+          outcome: pending.outcome, jestersUsed: pending.jestersUsed,
+          telegramIds: pending.seats.filter((p) => p.telegramId !== null).map((p) => p.telegramId!),
+          groupId: state.groupId,
+          memberIds: pending.seats.filter((p) => p.isGroupMember && p.telegramId !== null).map((p) => p.telegramId!),
+        });
+        if (!changes.length) {
+          // The batch may have committed before an eviction/failed local save.
+          const history = await env.DB.prepare(
+            `SELECT telegram_id AS telegramId, rating_before AS before, rating_after AS after, delta
+             FROM regicide_rating_history WHERE game_id = ?`,
+          ).bind(pending.gameId).all<RatingChange>();
+          changes = history.results ?? [];
+        }
+        // Never save the pre-I/O snapshot: joins, starts, and disconnects may
+        // have committed while D1 or Telegram was outstanding.
+        const current = await this.getState();
+        if (!current?.pendingRatings?.some((p) => p.gameId === pending.gameId)) continue;
+        const before = { players: current.players.length, gameNo: current.gameNo, ended: current.ratedGameId };
+        current.pendingRatings = current.pendingRatings.filter((p) => p.gameId !== pending.gameId);
+        current.ratedGameId = pending.gameId;
+        current.lastRating = {
+          gameId: pending.gameId, outcome: pending.outcome, defeated: pending.defeated,
+          changes: changes.map((c) => {
+            const seat = pending.seats.findIndex((p) => p.telegramId === c.telegramId);
+            return { seat, name: pending.seats[seat]?.name ?? '', before: c.before, after: c.after, delta: c.delta };
+          }),
+        };
+        await this.save(current);
+        this.broadcast(current);
+        if (current.groupId) this.ctx.waitUntil(this.notifyGroup(current, before));
       }
-      state.lastRating = {
-        gameId: pending.gameId,
-        outcome: pending.outcome,
-        defeated: pending.defeated,
-        changes: changes.map((c) => {
-          const seat = pending.seats.findIndex((p) => p.telegramId === c.telegramId);
-          return { seat, name: pending.seats[seat]?.name ?? '', before: c.before, after: c.after, delta: c.delta };
-        }),
-      };
     } catch (err) {
-      console.error('Regicide rating failed', err);
+      // The durable outbox and its alarm remain intact until all writes succeed.
+      console.error('Regicide rating failed; will retry', err);
     }
   }
 
@@ -346,7 +402,14 @@ export class RegicideRoom extends DurableObject {
     // New seat: verify membership first, so the group board only counts the group.
     if (state.players.length > before.players) {
       const joined = state.players[state.players.length - 1];
-      joined.isGroupMember = joined.telegramId !== null && await isChatMember(env.TELEGRAM_BOT_TOKEN, groupId, joined.telegramId);
+      const isGroupMember = joined.telegramId !== null && await isChatMember(env.TELEGRAM_BOT_TOKEN, groupId, joined.telegramId);
+      const current = await this.getState();
+      const player = current?.players.find((p) => p.id === joined.id);
+      if (current && player) {
+        player.isGroupMember = isGroupMember;
+        await this.save(current);
+        this.broadcast(current);
+      }
       const n = state.players.length;
       post(`👤 <b>${escapeHtml(joined.name)}</b> joined the Regicide lobby (${n}/4)\nPlayers: ${names(state.players)}${link && n < 4 ? `\n♛ Join → ${link}` : ''}`);
     }
@@ -381,7 +444,14 @@ export class RegicideRoom extends DurableObject {
   }
 
   private async save(state: RoomState): Promise<void> {
-    await this.ctx.storage.put('state', state);
+    // Issue together: the outbox and wakeup are committed under storage gates.
+    const write = this.ctx.storage.put('state', state);
+    const alarm = state.pendingRatings?.length
+      ? this.ctx.storage.setAlarm(Date.now() + RATING_RETRY_MS)
+      : this.sessions.size === 0
+        ? this.ctx.storage.setAlarm((state.idleSince ?? Date.now()) + INACTIVITY_MS)
+        : this.ctx.storage.deleteAlarm();
+    await Promise.all([write, alarm]);
   }
 
   private broadcast(state: RoomState): void {
