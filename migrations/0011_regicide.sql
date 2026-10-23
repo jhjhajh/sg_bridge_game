@@ -1,5 +1,6 @@
--- Regicide (co-op) ratings. Kept apart from Bridge's users.elo / game_records
--- so the two leaderboards never mix.
+-- Regicide (co-op) ratings and group stats — everything Regicide needs, in one file.
+-- Kept apart from Bridge's users.elo / game_records / group_stats so the boards never mix.
+-- Only CREATE ... IF NOT EXISTS: safe to run more than once, touches no Bridge data.
 
 CREATE TABLE IF NOT EXISTS regicide_ratings (
   telegram_id    INTEGER PRIMARY KEY,
@@ -32,3 +33,16 @@ CREATE TABLE IF NOT EXISTS regicide_rating_history (
   PRIMARY KEY (game_id, telegram_id)
 );
 CREATE INDEX IF NOT EXISTS idx_regicide_history_player ON regicide_rating_history(telegram_id, played_at DESC);
+
+-- Results per Telegram group, mirroring Bridge's group_stats: only players
+-- verified as members of the group when they joined are counted.
+
+CREATE TABLE IF NOT EXISTS regicide_group_stats (
+  group_id       TEXT    NOT NULL,
+  telegram_id    INTEGER NOT NULL,
+  games_played   INTEGER NOT NULL DEFAULT 0,
+  wins           INTEGER NOT NULL DEFAULT 0,
+  best_defeated  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (group_id, telegram_id),
+  FOREIGN KEY (group_id) REFERENCES groups(group_id)
+);

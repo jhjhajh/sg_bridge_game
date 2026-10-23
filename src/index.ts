@@ -68,9 +68,10 @@ async function handleTelegramCommand(cmd: TelegramCommand, env: Env, origin: str
       return;
     }
     case 'leaderboard': {
+      // A missing/broken Regicide table must never take the Bridge board down with it.
       const [bridge, regicide] = await Promise.all([
         getGroupLeaderboard(env.DB, cmd.chatId),
-        getRegicideGroupLeaderboard(env.DB, cmd.chatId),
+        getRegicideGroupLeaderboard(env.DB, cmd.chatId).catch((err) => { console.error('Regicide group board unavailable', err); return []; }),
       ]);
       if (bridge.top.length === 0 && regicide.length === 0) {
         await sendMessage(token, cmd.chatId, '🏆 No games played in this group yet! Try /newbridge or /newregicide.');
@@ -253,11 +254,12 @@ export default {
 
     if (url.pathname === '/api/regicide/leaderboard' && request.method === 'GET') {
       const claims = await getAuthClaims(request, env.JWT_SECRET).catch(() => null);
-      return Response.json(await getRegicideLeaderboard(env.DB, claims ? Number(claims.sub) : undefined));
+      // Empty (not an error) if the Regicide tables haven't been created yet.
+      return Response.json(await getRegicideLeaderboard(env.DB, claims ? Number(claims.sub) : undefined).catch(() => ({ top: [], me: null })));
     }
 
     if (url.pathname === '/api/regicide/stats' && request.method === 'GET') {
-      return Response.json(await getRegicideStats(env.DB));
+      return Response.json(await getRegicideStats(env.DB).catch(() => []));
     }
 
     // DEV ONLY: patch a live Regicide game to set up an exact scenario in tests.

@@ -5,7 +5,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 // `outboundService` (optional) intercepts the Worker's outbound fetches, e.g. to capture Telegram API calls.
-exports.startWorker = async function startWorker(port = 4210, testBindings = {}, { outboundService } = {}) {
+// `skipMigrations` (optional) leaves named migration files unapplied, e.g. to test a not-yet-migrated database.
+exports.startWorker = async function startWorker(port = 4210, testBindings = {}, { outboundService, skipMigrations = [] } = {}) {
   const root = path.join(__dirname, '../..');
   const { outputFiles } = await build({
     absWorkingDir: root, entryPoints: ['src/index.ts'], bundle: true, write: false,
@@ -26,7 +27,7 @@ exports.startWorker = async function startWorker(port = 4210, testBindings = {},
   });
   await mf.ready;
   const db = await mf.getD1Database('DB');
-  for (const file of (await fs.readdir(path.join(root, 'migrations'))).filter(name => name.endsWith('.sql')).sort()) {
+  for (const file of (await fs.readdir(path.join(root, 'migrations'))).filter(name => name.endsWith('.sql') && !skipMigrations.includes(name)).sort()) {
     const sql = (await fs.readFile(path.join(root, 'migrations', file), 'utf8')).replace(/--[^\n]*/g, '');
     for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await db.prepare(statement).run();
   }
