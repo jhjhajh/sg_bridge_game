@@ -6,7 +6,7 @@ import { getPlayerStats, getPairStats } from './stats-db';
 import { placeBet, getUserBet, getBettingLeaderboard } from './betting-db';
 import { listUserGames, getGameReplay } from './history';
 import { normalizePlayerName, telegramDisplayName, UNNAMED_TELEGRAM_USER } from './player-name';
-import { getRegicideLeaderboard } from './regicide/db';
+import { getRegicideLeaderboard, getRegicideStats } from './regicide/db';
 
 export { GameRoom } from './game-room';
 export { RegicideRoom } from './regicide/room';
@@ -183,6 +183,10 @@ export default {
     if (url.pathname === '/api/regicide/leaderboard' && request.method === 'GET') {
       const claims = await getAuthClaims(request, env.JWT_SECRET).catch(() => null);
       return Response.json(await getRegicideLeaderboard(env.DB, claims ? Number(claims.sub) : undefined));
+    }
+
+    if (url.pathname === '/api/regicide/stats' && request.method === 'GET') {
+      return Response.json(await getRegicideStats(env.DB));
     }
 
     // DEV ONLY: patch a live Regicide game to set up an exact scenario in tests.

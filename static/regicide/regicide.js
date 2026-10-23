@@ -747,6 +747,67 @@ function renderRatingResult() {
   box.replaceChildren(el('div', 'lb-header', '🏆 Regicide rating'), ...rows);
 }
 
+// ---------- Stats (Bridge's Players table, ranking only) ----------
+let statsRows = [];
+let statsMinGames = 3;
+let statsSort = { col: 'elo', dir: 'desc' };
+
+async function showStats() {
+  showScreen('screen-stats');
+  history.replaceState(null, '', `${location.pathname}?view=stats`);
+  $('stats-content').innerHTML = '<p class="stats-empty">Loading…</p>';
+  try {
+    const res = await fetch('/api/regicide/stats');
+    statsRows = res.ok ? await res.json() : [];
+  } catch { statsRows = []; }
+  renderStats();
+}
+
+function hideStats() {
+  history.replaceState(null, '', location.pathname);
+  render();
+}
+
+function sortStats(col) {
+  statsSort = statsSort.col === col ? { col, dir: statsSort.dir === 'desc' ? 'asc' : 'desc' } : { col, dir: col === 'name' ? 'asc' : 'desc' };
+  renderStats();
+}
+
+function renderStats() {
+  const content = $('stats-content');
+  for (const b of document.querySelectorAll('#rc-min-games .min-games-btn')) b.classList.toggle('active', Number(b.dataset.value) === statsMinGames);
+  const sortFns = {
+    elo: (r) => r.elo, games: (r) => r.games, wins: (r) => r.wins, winPct: (r) => r.winPct,
+    best: (r) => r.bestDefeated, avg: (r) => r.avgDefeated, name: (r) => r.displayName.toLowerCase(),
+  };
+  const fn = sortFns[statsSort.col] ?? sortFns.elo;
+  const sorted = statsRows.filter((r) => r.games >= statsMinGames).sort((a, b) => {
+    const av = fn(a), bv = fn(b);
+    return statsSort.dir === 'desc' ? (bv > av ? 1 : bv < av ? -1 : 0) : (av > bv ? 1 : av < bv ? -1 : 0);
+  });
+  if (!sorted.length) {
+    content.innerHTML = `<p class="stats-empty">No players with ${statsMinGames}+ games yet.</p>`;
+    return;
+  }
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const medals = ['🥇', '🥈', '🥉'];
+  const arrow = (col) => (statsSort.col !== col ? '<span class="sort-arrow">⇅</span>' : `<span class="sort-arrow active">${statsSort.dir === 'desc' ? '▼' : '▲'}</span>`);
+  const th = (col, label, left = false) => `<th class="${left ? 'stats-th-left' : ''}${statsSort.col === col ? ' sorted' : ''}" data-sort="${col}">${label} ${arrow(col)}</th>`;
+  const body = sorted.map((r, i) => `<tr>
+      <td class="stats-td-name">${i < 3 ? medals[i] : `${i + 1}.`} ${esc(r.displayName)}</td>
+      <td class="stats-td-num stats-elo">${r.elo}</td>
+      <td class="stats-td-num">${r.games}</td>
+      <td class="stats-td-num">${r.wins}</td>
+      <td class="stats-td-num">${r.winPct}%</td>
+      <td class="stats-td-num${r.bestDefeated === 12 ? ' rc-best-win' : ''}">${r.bestDefeated}/12</td>
+      <td class="stats-td-num">${r.avgDefeated.toFixed(1)}</td>
+    </tr>`).join('');
+  content.innerHTML = `<div class="stats-table-wrap"><table class="stats-table">
+    <thead><tr>${th('name', 'Player', true)}${th('elo', 'Rating')}${th('games', 'G')}${th('wins', 'W')}${th('winPct', 'Win%')}${th('best', 'Best')}${th('avg', 'Avg')}</tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+  for (const cell of content.querySelectorAll('th[data-sort]')) cell.addEventListener('click', () => sortStats(cell.dataset.sort));
+}
+
 // ---------- Room lifecycle ----------
 function enterRoom(code) {
   roomCode = code;
@@ -911,6 +972,11 @@ $('btn-bestfit').addEventListener('click', () => {
   renderHand(g, true);
   renderActions(g, true);
 });
+$('btn-stats').addEventListener('click', showStats);
+$('btn-stats-home').addEventListener('click', hideStats);
+for (const b of document.querySelectorAll('#rc-min-games .min-games-btn')) {
+  b.addEventListener('click', () => { statsMinGames = Number(b.dataset.value); renderStats(); });
+}
 $('btn-again').addEventListener('click', () => send({ type: 'backToLobby' }));
 $('btn-over-close').addEventListener('click', () => { overDismissed = true; hideModal('modal-over'); });
 
@@ -958,5 +1024,6 @@ addEventListener('hashchange', () => {
 FunLeaderboard.mount($('leaderboard-section'), { game: 'regicide' });
 initAuth().finally(() => {
   if (hashInfo.room) openFromHash(hashInfo.room);
+  else if (new URLSearchParams(location.search).get('view') === 'stats') showStats();
   else render();
 });

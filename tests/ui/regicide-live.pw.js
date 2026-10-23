@@ -280,6 +280,39 @@ test('spectators watch without a hand; a reload keeps your seat', async ({ brows
   } finally { await close([...pages, late]); }
 });
 
+test('Regicide stats: ranking with Bridge-style min-games filter and sorting; linked from the leaderboard card', async ({ browser }) => {
+  const now = Math.floor(Date.now() / 1000);
+  const seed = [[7001, 'Stats Veteran', 1150, 25, 6, 12], [7002, 'Stats Regular', 1090, 12, 1, 12], [7003, 'Stats Newbie', 990, 4, 0, 5]];
+  for (const [id, name, rating, games, wins, best] of seed) {
+    await worker.db.prepare('INSERT OR IGNORE INTO users (telegram_id, display_name, created_at) VALUES (?, ?, ?)').bind(id, name, now).run();
+    await worker.db.prepare('INSERT OR REPLACE INTO regicide_ratings (telegram_id, rating, games_played, wins, best_defeated, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(id, rating, games, wins, best, now).run();
+  }
+  const { page, context } = await client(browser, 'Stats Viewer', { mobile: true, signedIn: false });
+  try {
+    await page.goto(worker.origin);
+    await page.locator('.lb-tab[data-game="regicide"]').click();
+    await page.locator('.lb-card a', { hasText: 'Full stats' }).click();
+    await expect(page.locator('#screen-stats')).toHaveClass(/active/);
+    const names = () => page.locator('#stats-content tbody .stats-td-name').allTextContents();
+    await expect.poll(async () => (await names()).join('|')).toContain('Stats Veteran');
+    expect((await names()).some((n) => n.includes('Stats Newbie'))).toBe(true); // 4 games ≥ 3
+    await page.locator('#rc-min-games [data-value="10"]').click();
+    expect((await names()).some((n) => n.includes('Stats Newbie'))).toBe(false);
+    expect((await names()).some((n) => n.includes('Stats Regular'))).toBe(true);
+    await page.locator('#rc-min-games [data-value="20"]').click();
+    expect((await names()).filter((n) => n.includes('Stats '))).toEqual(['🥇 Stats Veteran']);
+    // Sorting by games ascending puts the 12-game player first among those with 10+.
+    await page.locator('#rc-min-games [data-value="10"]').click();
+    await page.locator('th[data-sort="games"]').click();
+    await page.locator('th[data-sort="games"]').click();
+    expect((await names())[0]).toContain('Stats Regular');
+    expect(await noSideScroll(page)).toBe(true);
+    await page.locator('#btn-stats-home').click();
+    await expect(page.locator('#screen-home')).toHaveClass(/active/);
+  } finally { await context.close(); }
+});
+
 // --- Full games through the UI for every player count ---
 
 const VALUE = (c) => (c.startsWith('X') ? 0 : ({ A: 1, J: 10, Q: 15, K: 20 })[c.slice(0, -1)] ?? Number(c.slice(0, -1)));

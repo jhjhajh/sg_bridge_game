@@ -118,3 +118,39 @@ export async function getRegicideLeaderboard(
   if (!me || me.rank <= limit) return { top: entries, me: null };
   return { top: entries, me: toEntry(me) };
 }
+
+export interface RegicidePlayerStats {
+  displayName: string;
+  elo: number;
+  games: number;
+  wins: number;
+  winPct: number;
+  bestDefeated: number;
+  /** Mean royals defeated per rated game, one decimal. */
+  avgDefeated: number;
+}
+
+/** Every rated Regicide player, for the full stats table (the client filters by min games, like Bridge). */
+export async function getRegicideStats(db: D1Database): Promise<RegicidePlayerStats[]> {
+  const rows = await db
+    .prepare(
+      `SELECT u.display_name, r.rating, r.games_played, r.wins, r.best_defeated,
+              (SELECT ROUND(AVG(g.defeated), 1)
+                 FROM regicide_rating_history h JOIN regicide_games g ON g.game_id = h.game_id
+                WHERE h.telegram_id = r.telegram_id) AS avg_defeated
+       FROM regicide_ratings r JOIN users u ON u.telegram_id = r.telegram_id
+       WHERE r.games_played > 0
+       ORDER BY r.rating DESC
+       LIMIT 500`,
+    )
+    .all<{ display_name: string; rating: number; games_played: number; wins: number; best_defeated: number; avg_defeated: number | null }>();
+  return (rows.results ?? []).map((r) => ({
+    displayName: r.display_name,
+    elo: r.rating,
+    games: r.games_played,
+    wins: r.wins,
+    winPct: r.games_played ? Math.round((r.wins / r.games_played) * 100) : 0,
+    bestDefeated: r.best_defeated,
+    avgDefeated: r.avg_defeated ?? 0,
+  }));
+}

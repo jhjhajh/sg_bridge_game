@@ -74,6 +74,29 @@
       </div>
 
       <button id="btn-rules-home" type="button" class="btn btn-ghost rc-rules-btn">📖 How to Play</button>
+      <button id="btn-stats" type="button" class="btn btn-ghost rc-stats-btn">📊 Regicide Stats</button>
+    </div>
+  </div>
+
+  <!-- Stats (same layout as Bridge's stats screen; ranking only) -->
+  <div id="screen-stats" class="screen">
+    <div class="stats-container">
+      <div class="stats-topbar">
+        <span class="stats-title">📊 Regicide Stats</span>
+        <div class="stats-topbar-right">
+          <button id="btn-stats-home" type="button" class="btn-link">← Home</button>
+        </div>
+      </div>
+      <div class="stats-filter-bar">
+        <span class="stats-filter-label">Min games:</span>
+        <div class="min-games-filter" id="rc-min-games">
+          <button class="min-games-btn active" data-value="3">3</button>
+          <button class="min-games-btn" data-value="10">10</button>
+          <button class="min-games-btn" data-value="20">20</button>
+        </div>
+      </div>
+      <div id="stats-content"></div>
+      <p class="stats-footer">Rating = how far your team gets (royals defeated out of 12) vs what's expected for your rating · Separate from Bridge ELO</p>
     </div>
   </div>
 

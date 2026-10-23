@@ -8,6 +8,8 @@ window.FunLeaderboard = (() => {
     regicide: { label: 'Regicide', url: '/api/regicide/leaderboard', stats: (e) => `${e.bestDefeated}/12 · ${e.gamesPlayed}G` },
   };
   const medals = ['🥇', '🥈', '🥉'];
+  // On the Regicide page this opens its stats screen in place; elsewhere it navigates there.
+  const REGICIDE_FOOTER = '<div class="lb-footer"><a class="btn-link" href="/regicide/?view=stats" onclick="if (window.showStats && location.pathname.startsWith(\'/regicide\')) { event.preventDefault(); showStats(); }">📊 Full stats →</a></div>';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const token = () => { try { return localStorage.getItem('authToken'); } catch { return null; } };
 
@@ -50,7 +52,7 @@ window.FunLeaderboard = (() => {
     const draw = () => {
       const tabs = Object.entries(GAMES).map(([key, g]) =>
         `<button type="button" class="lb-tab${key === current ? ' active' : ''}" data-game="${key}" aria-pressed="${key === current}">${g.label}</button>`).join('');
-      el.innerHTML = `<div class="lb-card"><div class="lb-header">🏆 Leaderboard</div><div class="lb-tabs" role="group" aria-label="Leaderboard game">${tabs}</div>${rows(current, boards[current])}${footer && current === 'bridge' ? `<div class="lb-footer">${footer}</div>` : ''}</div>`;
+      el.innerHTML = `<div class="lb-card"><div class="lb-header">🏆 Leaderboard</div><div class="lb-tabs" role="group" aria-label="Leaderboard game">${tabs}</div>${rows(current, boards[current])}${current === 'bridge' ? (footer ? `<div class="lb-footer">${footer}</div>` : '') : REGICIDE_FOOTER}</div>`;
       for (const b of el.querySelectorAll('.lb-tab')) b.addEventListener('click', () => { current = b.dataset.game; draw(); });
     };
     draw();

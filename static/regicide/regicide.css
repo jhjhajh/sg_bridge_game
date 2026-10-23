@@ -4,6 +4,8 @@
    pieces live here. */
 
 .rc-rules-btn { margin-top: 0.75rem; }
+.rc-stats-btn { margin-top: 0.5rem; }
+#screen-stats.active { align-items: flex-start; }
 body.modal-open { overflow: hidden; }
 
 /* --- Top bar --- */
@@ -181,3 +183,4 @@ button.top-bar-room::after { content: ' 🔗'; font-size: 0.65rem; letter-spacin
 .rc-over-rating .lb-header { margin-bottom: 0.4rem; }
 .rc-over-rating .rc-delta-up { color: var(--success); font-weight: 700; }
 .rc-over-rating .rc-delta-down { color: var(--danger); font-weight: 700; }
+.rc-best-win { color: var(--gold); font-weight: 700; }
