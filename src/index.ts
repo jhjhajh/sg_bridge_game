@@ -1,7 +1,8 @@
 import type { Env } from './types';
 import { verifyTelegramAuth, signJwt, verifyJwt } from './auth';
 import { upsertUser, getUser, updateDisplayName, getLeaderboard, upsertGroup, getGroupLeaderboard } from './db';
-import { sendMessage, parseUpdate, setBotCommands, escapeHtml, type TelegramCommand } from './telegram';
+import { sendMessage, parseUpdate, parseGameSelection, sendGameMenu, answerGameSelection, setBotCommands, escapeHtml, type TelegramCommand } from './telegram';
+import { GAME_CATALOG } from './games';
 import { getPlayerStats, getPairStats } from './stats-db';
 import { placeBet, getUserBet, getBettingLeaderboard } from './betting-db';
 import { listUserGames, getGameReplay } from './history';
@@ -34,8 +35,8 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const HELP_TEXT = [
   '🎪 <b>Fun Central</b> — card games for this group',
   '',
-  '/newbridge — start a Floating Bridge game (4 players, rated ELO)',
-  '/newregicide — start a Regicide game (co-op, 1–4 players)',
+  '/newgame — choose a game to start',
+  ...GAME_CATALOG.map((game) => `/${game.telegramCommand} — start ${game.name} (${game.players})`),
   '/leaderboard — this group\'s Bridge and Regicide leaderboards',
   '/help — this message',
   '',
@@ -47,6 +48,9 @@ async function handleTelegramCommand(cmd: TelegramCommand, env: Env, origin: str
   const token = env.TELEGRAM_BOT_TOKEN;
   const who = `<b>@${escapeHtml(cmd.fromUsername)}</b>`;
   switch (cmd.command) {
+    case 'newgame':
+      await sendGameMenu(token, cmd.chatId);
+      return;
     case 'newbridge': {
       await upsertGroup(env.DB, cmd.chatId, cmd.groupName);
       const roomCode = generateRoomCode();
@@ -91,6 +95,8 @@ async function handleTelegramCommand(cmd: TelegramCommand, env: Env, origin: str
       await sendMessage(token, cmd.chatId, HELP_TEXT);
       return;
   }
+  const unsupported: never = cmd.command;
+  throw new Error(`Unimplemented game command: ${unsupported}`);
 }
 
 /** The "/" command menu is registered from code once per Worker instance (no BotFather step). */
@@ -293,13 +299,17 @@ export default {
     if (url.pathname === '/api/telegram' && request.method === 'POST') {
       // Always respond 200 — Telegram retries on non-200
       const body = await request.json().catch(() => null);
-      const cmd = parseUpdate(body);
-      if (!cmd) return new Response(null, { status: 200 });
+      const selection = parseGameSelection(body);
+      const cmd = selection ? selection.command : parseUpdate(body);
+      if (!cmd && !selection) return new Response(null, { status: 200 });
       if (!botCommandsRegistered) {
         botCommandsRegistered = true;
-        ctx.waitUntil(setBotCommands(env.TELEGRAM_BOT_TOKEN));
+        ctx.waitUntil(setBotCommands(env.TELEGRAM_BOT_TOKEN).then((registered) => {
+          botCommandsRegistered = registered; // retry on a later update if Telegram rejected the menu
+        }));
       }
-      await handleTelegramCommand(cmd, env, new URL(request.url).origin).catch((err) => console.error('Telegram command failed', err));
+      if (selection) await answerGameSelection(env.TELEGRAM_BOT_TOKEN, selection.callbackQueryId, !!cmd);
+      if (cmd) await handleTelegramCommand(cmd, env, new URL(request.url).origin).catch((err) => console.error('Telegram command failed', err));
       return new Response(null, { status: 200 });
     }
 

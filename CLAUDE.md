@@ -144,9 +144,9 @@ remain separately authored.
 - Escape user-controlled names in HTML bot messages. Keep games' ratings and group boards separate.
 - `tests/telegram.test.ts` and `tests/ui/telegram-live.pw.js` cover parsing/local webhook behavior with Bot API calls captured via Miniflare `outboundService`; they do not establish real Telegram/WebView compatibility. See [testing](docs/testing.md) for chooser/callback regression requirements.
 
-## Game History & Replay
+## Bridge Game History & Replay
 
-Completed games (practice *and* rated) are replayable from the home screen via **Match History**.
+Completed Bridge games (practice *and* rated) are replayable from the Bridge home screen via **Match History**.
 
 ### Storage split
 - **`game_hands`** — one row per (game_id, seat) with `telegram_id` (nullable for bots/guests), `initial_hand`, `final_hand`. This is the **participation index** — history queries find a user's games here.
@@ -196,7 +196,7 @@ them from current setup, architecture and validation instructions.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 relationships, 37 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+The canonical checkout is indexed by GitNexus as **funCentral**. Linked worktrees can have their own index names; select the index for the checkout being edited. Use GitNexus to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -212,8 +212,8 @@ This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 rel
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/sg_bridge_game/process/{processName}` — trace the full execution flow step by step
-4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
+3. `READ gitnexus://repo/funCentral/process/{processName}` — trace the full execution flow step by step
+4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "master"})` — see what your branch changed
 
 ## When Refactoring
 
@@ -251,10 +251,10 @@ This project is indexed by GitNexus as **sg_bridge_game** (482 symbols, 1484 rel
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/sg_bridge_game/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/sg_bridge_game/clusters` | All functional areas |
-| `gitnexus://repo/sg_bridge_game/processes` | All execution flows |
-| `gitnexus://repo/sg_bridge_game/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/funCentral/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/funCentral/clusters` | All functional areas |
+| `gitnexus://repo/funCentral/processes` | All execution flows |
+| `gitnexus://repo/funCentral/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 

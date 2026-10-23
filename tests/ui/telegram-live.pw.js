@@ -11,7 +11,7 @@ const members = new Set();
 let worker;
 
 test.beforeAll(async () => {
-  worker = await startWorker(4220, { TELEGRAM_BOT_TOKEN: 'test-token' }, {
+  worker = await startWorker(4230, { TELEGRAM_BOT_TOKEN: 'test-token' }, {
     outboundService: async (request) => {
       const url = new URL(request.url);
       if (url.hostname !== 'api.telegram.org') return new MfResponse('blocked in tests', { status: 502 });
@@ -37,6 +37,21 @@ async function command(text, chatType = 'supergroup') {
   expect(res.status).toBe(200);
   return before;
 }
+let callbackSequence = 0;
+async function chooseGame(data, chatType = 'supergroup') {
+  const id = `choice-${++callbackSequence}`;
+  const res = await fetch(`${worker.origin}/api/telegram`, {
+    method: 'POST',
+    body: JSON.stringify({ callback_query: {
+      id, data, from: { id: 6, username: 'chooser' },
+      message: { message_id: 123, chat: { id: GROUP, type: chatType, title: 'Card <Club>' } },
+    } }),
+  });
+  expect(res.status).toBe(200);
+  const answer = sent.find((c) => c.method === 'answerCallbackQuery' && c.body.callback_query_id === id);
+  expect(answer).toBeDefined();
+  return id;
+}
 async function login(name) {
   const res = await fetch(`${worker.origin}/api/auth/dev`, { method: 'POST', body: JSON.stringify({ displayName: name }) });
   return res.json();
@@ -53,12 +68,13 @@ async function player(browser, auth, room) {
 test('help, aliases and the command menu are all handled in code', async () => {
   let before = await command('/help@funCentral_bot');
   await expect.poll(() => messages().length).toBe(before + 1);
+  expect(messages().at(-1)).toContain('/newgame');
   expect(messages().at(-1)).toContain('/newregicide');
   expect(messages().at(-1)).toContain('/newbridge');
   // The "/" menu is registered from code (once per Worker instance): no BotFather step.
   const menu = sent.find((c) => c.method === 'setMyCommands');
   expect(menu?.body.scope).toEqual({ type: 'all_group_chats' });
-  expect(menu.body.commands.map((c) => c.command)).toEqual(['newbridge', 'newregicide', 'leaderboard']);
+  expect(menu.body.commands.map((c) => c.command)).toEqual(['newgame', 'leaderboard', 'help']);
 
   before = await command('/start');
   await expect.poll(() => messages().length).toBe(before + 1);
@@ -70,13 +86,53 @@ test('help, aliases and the command menu are all handled in code', async () => {
   expect(messages().length).toBe(before);
 });
 
-test('/newgame still starts Bridge and points at Regicide', async () => {
-  const before = await command('/newgame');
+test('/newgame offers games first, then either button creates the selected group room', async () => {
+  const before = await command('/newgame@funCentral_bot');
   await expect.poll(() => messages().length).toBe(before + 1);
-  expect(messages().at(-1)).toMatch(/started a new Bridge game![\s\S]*\/bridge\/#[A-Z0-9]{4}/);
-  expect(messages().at(-1)).toContain('/newregicide');
+  const menu = sent.filter((c) => c.method === 'sendMessage' && c.body.reply_markup).at(-1).body;
+  expect(menu.text).toContain('Which game');
+  expect(menu.text).not.toMatch(/\/#/);
+  expect(menu.reply_markup.inline_keyboard.flat().map((b) => b.callback_data)).toEqual(['newgame:bridge', 'newgame:regicide']);
+  expect(await worker.db.prepare('SELECT COUNT(*) AS n FROM groups').first('n')).toBe(0);
+
+  for (const game of ['bridge', 'regicide']) {
+    const at = sent.length;
+    await chooseGame(`newgame:${game}`);
+    const calls = sent.slice(at);
+    expect(calls[0].method).toBe('answerCallbackQuery'); // spinner stops before room creation
+    const post = calls.find((c) => c.method === 'sendMessage').body;
+    expect(post.chat_id).toBe(String(GROUP));
+    expect(post.text).toContain('@chooser'); // the clicker, not the original menu sender
+    const room = new RegExp(`/${game}/#([A-Z0-9]{4})`).exec(post.text)[1];
+    if (game === 'bridge') {
+      const roomState = await worker.mf.getDurableObjectNamespace('GAME_ROOM');
+      const phase = await roomState.get(roomState.idFromName(room)).fetch('https://internal/phase');
+      expect((await phase.json()).phase).toBe('lobby');
+    } else {
+      const rooms = await worker.mf.getDurableObjectNamespace('REGICIDE_ROOM');
+      const response = await rooms.get(rooms.idFromName(room)).fetch('https://internal/?playerId=guest_observer', { headers: { Upgrade: 'websocket' } });
+      expect(response.status).toBe(101);
+      const socket = response.webSocket;
+      socket.accept();
+      const state = await new Promise((resolve) => socket.addEventListener('message', (event) => resolve(JSON.parse(event.data)), { once: true }));
+      expect(state.groupName).toBe('Card <Club>');
+      expect(state.game).toBeNull();
+      socket.close(1000);
+    }
+  }
   await command('/newbridge');
   expect(messages().at(-1)).toMatch(/\/bridge\/#[A-Z0-9]{4}/);
+});
+
+test('unsupported or private-chat buttons are acknowledged without creating a game', async () => {
+  const before = messages().length;
+  await chooseGame('newgame:unknown');
+  await chooseGame('newgame:constructor');
+  await chooseGame('newgame:bridge', 'private');
+  expect(messages().length).toBe(before);
+  const answers = sent.filter((c) => c.method === 'answerCallbackQuery').slice(-3);
+  expect(answers).toHaveLength(3);
+  for (const answer of answers) expect(answer.body.text).toContain('/newgame');
 });
 
 test('/newregicide: group room, membership-aware lobby, start and result posts, group leaderboard', async ({ browser }) => {
