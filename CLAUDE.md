@@ -135,7 +135,7 @@ Webhook `POST /api/telegram` → `parseUpdate` (`src/telegram.ts`, group/supergr
 | `/leaderboard` | | Group board for both games (Bridge by ELO, Regicide by rating) |
 | `/help` | `/start` | Lists the commands |
 
-- **No BotFather step:** the "/" menu is registered from code with `setMyCommands` (scope `all_group_chats`), once per Worker instance, on the first command it handles. Telegram delivers `/commands` to bots even in privacy mode, so new commands only need code. The one-time `setWebhook` registration is the only bot-owner setup.
+- **No BotFather step:** the "/" menu (`/newbridge`, `/newregicide`, `/leaderboard`; `/help` and the aliases work but aren't listed) is registered from code with `setMyCommands` (scope `all_group_chats`), once per Worker instance, on the first command it handles. Telegram delivers `/commands` to bots even in privacy mode, so new commands only need code. The one-time `setWebhook` registration is the only bot-owner setup.
 - **Group Regicide rooms** check membership on join (`isChatMember`, as Bridge does). Non-members play and are rated globally but are flagged "⚠️ not in group" and don't count in `regicide_group_stats` (migration `0012`). The room posts lobby joins, the start, and the result with rating changes to the group.
 - User-controlled names in new bot messages go through `escapeHtml` (messages use HTML parse mode).
 - Tests: `tests/telegram.test.ts` (parser) and `tests/ui/telegram-live.pw.js` (live webhook with every Bot API call captured via Miniflare `outboundService` — nothing reaches Telegram).

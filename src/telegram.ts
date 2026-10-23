@@ -60,12 +60,14 @@ const ALIASES: Record<string, CommandName> = {
   start: 'help',
 };
 
-/** The "/" menu Telegram shows in groups — registered from code, no BotFather step needed. */
+/**
+ * The "/" menu Telegram shows in groups — registered from code, no BotFather step needed.
+ * Kept to three; /help and the aliases still work when typed.
+ */
 export const BOT_COMMANDS: { command: string; description: string }[] = [
   { command: 'newbridge', description: 'Start a Floating Bridge game (4 players)' },
   { command: 'newregicide', description: 'Start a Regicide game (co-op, 1–4 players)' },
   { command: 'leaderboard', description: "This group's Bridge and Regicide leaderboards" },
-  { command: 'help', description: 'What this bot can do' },
 ];
 
 /** Sets the bot's command menu for group chats. Fire-and-forget like sendMessage. */

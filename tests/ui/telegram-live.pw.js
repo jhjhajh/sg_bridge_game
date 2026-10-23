@@ -58,7 +58,7 @@ test('help, aliases and the command menu are all handled in code', async () => {
   // The "/" menu is registered from code (once per Worker instance): no BotFather step.
   const menu = sent.find((c) => c.method === 'setMyCommands');
   expect(menu?.body.scope).toEqual({ type: 'all_group_chats' });
-  expect(menu.body.commands.map((c) => c.command)).toEqual(['newbridge', 'newregicide', 'leaderboard', 'help']);
+  expect(menu.body.commands.map((c) => c.command)).toEqual(['newbridge', 'newregicide', 'leaderboard']);
 
   before = await command('/start');
   await expect.poll(() => messages().length).toBe(before + 1);
